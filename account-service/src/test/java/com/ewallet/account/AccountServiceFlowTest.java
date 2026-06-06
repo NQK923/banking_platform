@@ -281,10 +281,26 @@ class AccountServiceFlowTest {
     void wipedBalanceProjectionRebuildsExactlyFromSnapshotsAndEvents() throws Exception {
         Auth user = register("rebuild-user@example.test", "+84000000601");
         String admin = login("admin@local.test", "Admin123!").accessToken();
-        postJson("/api/accounts/" + user.accountId() + "/deposit", admin, "{\"amount\":\"123\"}", null)
+        postJson("/api/accounts/" + user.accountId() + "/deposit", admin, "{\"amount\":\"100\"}", null)
             .andExpect(status().isOk());
         postJson("/api/admin/snapshots/write", admin, "{}", null)
             .andExpect(status().isOk());
+        postJson("/api/accounts/" + user.accountId() + "/deposit", admin, "{\"amount\":\"23\"}", null)
+            .andExpect(status().isOk());
+        assertThat(jdbc.queryForObject(
+            """
+                SELECT count(*)
+                FROM account_events e
+                JOIN (
+                    SELECT account_id, max(version) AS snapshot_version
+                    FROM account_snapshots
+                    GROUP BY account_id
+                ) s ON s.account_id = e.account_id
+                WHERE e.account_id = ? AND e.version > s.snapshot_version
+                """,
+            Integer.class,
+            UUID.fromString(user.accountId())
+        )).isGreaterThan(0);
 
         jdbc.update("DELETE FROM account_balances");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM account_balances", Integer.class)).isZero();
@@ -293,6 +309,11 @@ class AccountServiceFlowTest {
             .andExpect(status().isOk());
 
         assertThat(getJson("/api/accounts/" + user.accountId() + "/balance", user.accessToken()).get("balance").asText()).isEqualTo("123");
+        assertThat(jdbc.queryForObject(
+            "SELECT balance FROM account_balances WHERE account_id = ?",
+            BigDecimal.class,
+            UUID.fromString(user.accountId())
+        )).isEqualByComparingTo(new BigDecimal("123.0000"));
         JsonNode report = postJson("/api/reconciliation/run", admin, "{}", null)
             .andExpect(status().isOk()).andReturnJson();
         assertThat(report.get("zeroDrift").asBoolean()).isTrue();
