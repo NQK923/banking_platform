@@ -1,0 +1,167 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: banking_platform
+      POSTGRES_USER: banking
+      POSTGRES_PASSWORD: banking
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U banking -d banking_platform"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.7.1
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+
+  kafka:
+    image: confluentinc/cp-kafka:7.7.1
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.7.1
+    depends_on:
+      - kafka
+    ports:
+      - "8085:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: PLAINTEXT://kafka:29092
+
+  account-service:
+    image: eclipse-temurin:17-jre
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    working_dir: /app
+    command: ["java", "-jar", "/app/account-service.jar"]
+    volumes:
+      - ./account-service/build/libs/account-service-0.1.0-SNAPSHOT.jar:/app/account-service.jar:ro
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/banking_platform
+      SPRING_DATASOURCE_USERNAME: banking
+      SPRING_DATASOURCE_PASSWORD: banking
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+    ports:
+      - "8081:8081"
+      - "9090:9090"
+
+  transaction-service:
+    image: eclipse-temurin:17-jre
+    depends_on:
+      account-service:
+        condition: service_started
+    working_dir: /app
+    command: ["java", "-jar", "/app/transaction-service.jar"]
+    volumes:
+      - ./transaction-service/build/libs/transaction-service-0.1.0-SNAPSHOT.jar:/app/transaction-service.jar:ro
+    environment:
+      BANKING_ACCOUNT_SERVICE_BASE_URL: http://account-service:8081
+    ports:
+      - "8082:8082"
+
+  audit-service:
+    image: eclipse-temurin:17-jre
+    depends_on:
+      account-service:
+        condition: service_started
+    working_dir: /app
+    command: ["java", "-jar", "/app/audit-service.jar"]
+    volumes:
+      - ./audit-service/build/libs/audit-service-0.1.0-SNAPSHOT.jar:/app/audit-service.jar:ro
+    environment:
+      BANKING_ACCOUNT_SERVICE_BASE_URL: http://account-service:8081
+    ports:
+      - "8084:8084"
+
+  reconciliation-service:
+    image: eclipse-temurin:17-jre
+    depends_on:
+      account-service:
+        condition: service_started
+    working_dir: /app
+    command: ["java", "-jar", "/app/reconciliation-service.jar"]
+    volumes:
+      - ./reconciliation-service/build/libs/reconciliation-service-0.1.0-SNAPSHOT.jar:/app/reconciliation-service.jar:ro
+    environment:
+      BANKING_ACCOUNT_SERVICE_BASE_URL: http://account-service:8081
+    ports:
+      - "8086:8086"
+
+  notification-service:
+    image: eclipse-temurin:17-jre
+    depends_on:
+      kafka:
+        condition: service_healthy
+    working_dir: /app
+    command: ["java", "-jar", "/app/notification-service.jar"]
+    volumes:
+      - ./notification-service/build/libs/notification-service-0.1.0-SNAPSHOT.jar:/app/notification-service.jar:ro
+    environment:
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+    ports:
+      - "8083:8083"
+
+  api-gateway:
+    image: eclipse-temurin:17-jre
+    depends_on:
+      account-service:
+        condition: service_started
+      transaction-service:
+        condition: service_started
+      audit-service:
+        condition: service_started
+      reconciliation-service:
+        condition: service_started
+      notification-service:
+        condition: service_started
+    working_dir: /app
+    command: ["java", "-jar", "/app/api-gateway.jar"]
+    volumes:
+      - ./api-gateway/build/libs/api-gateway-0.1.0-SNAPSHOT.jar:/app/api-gateway.jar:ro
+    environment:
+      ACCOUNT_SERVICE_URL: http://account-service:8081
+      TRANSACTION_SERVICE_URL: http://transaction-service:8082
+      AUDIT_SERVICE_URL: http://audit-service:8084
+      RECONCILIATION_SERVICE_URL: http://reconciliation-service:8086
+    ports:
+      - "8080:8080"
