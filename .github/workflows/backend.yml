@@ -1,0 +1,29 @@
+name: Backend
+
+on:
+  push:
+    paths:
+      - "**"
+      - ".github/workflows/backend.yml"
+  pull_request:
+    paths:
+      - "**"
+      - ".github/workflows/backend.yml"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: banking_platform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - run: chmod +x ./gradlew
+      - run: ./gradlew clean build
+      - name: Full stack smoke
+        shell: pwsh
+        run: ./scripts/verify-local.ps1 -SkipBuild
