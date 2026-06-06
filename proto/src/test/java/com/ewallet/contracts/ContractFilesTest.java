@@ -18,6 +18,10 @@ class ContractFilesTest {
             "/api/accounts/lookup",
             "/api/transactions/transfer",
             "/api/admin/accounts",
+            "/api/admin/dlq",
+            "/api/admin/dlq/replay",
+            "/api/admin/snapshots/write",
+            "/api/admin/projections/rebuild-balances",
             "/api/reconciliation/run",
             "ErrorResponse",
             "traceId"

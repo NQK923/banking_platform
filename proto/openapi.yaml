@@ -154,6 +154,36 @@ paths:
       responses:
         "200":
           description: Admin audit list
+  /api/admin/dlq:
+    get:
+      operationId: adminInspectDlq
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        "200":
+          description: Wallet event DLQ messages
+  /api/admin/dlq/replay:
+    post:
+      operationId: adminReplayDlqMessage
+      responses:
+        "200":
+          description: DLQ replay result
+  /api/admin/snapshots/write:
+    post:
+      operationId: adminWriteAccountSnapshots
+      responses:
+        "200":
+          description: Snapshot write result
+  /api/admin/projections/rebuild-balances:
+    post:
+      operationId: adminRebuildAccountBalances
+      responses:
+        "200":
+          description: Balance projection rebuild result
   /api/audit:
     get:
       operationId: listAudit
