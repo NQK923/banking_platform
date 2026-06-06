@@ -1,0 +1,48 @@
+[
+  {
+    "type": "enum",
+    "name": "SagaEventType",
+    "namespace": "ewallet.events.v1",
+    "symbols": [
+      "TransferInitiated",
+      "CompensateDebit",
+      "MoneyDebited",
+      "MoneyCredited",
+      "MoneyDebitFailed",
+      "MoneyCreditFailed",
+      "MoneyDebitReversed",
+      "TransferCompleted",
+      "TransferFailed"
+    ]
+  },
+  {
+    "type": "record",
+    "name": "TransferInitiated",
+    "namespace": "ewallet.events.v1",
+    "fields": [
+      {"name": "schema_version", "type": "int", "default": 1},
+      {"name": "event_id", "type": "string"},
+      {"name": "transaction_id", "type": "string"},
+      {"name": "sender_account_id", "type": "string"},
+      {"name": "receiver_account_id", "type": "string"},
+      {"name": "amount", "type": "string"},
+      {"name": "currency", "type": "string"},
+      {"name": "correlation_id", "type": "string"}
+    ]
+  },
+  {
+    "type": "record",
+    "name": "MoneyMovementEvent",
+    "namespace": "ewallet.events.v1",
+    "fields": [
+      {"name": "schema_version", "type": "int", "default": 1},
+      {"name": "event_id", "type": "string"},
+      {"name": "event_type", "type": "string"},
+      {"name": "transaction_id", "type": "string"},
+      {"name": "account_id", "type": "string"},
+      {"name": "amount", "type": "string"},
+      {"name": "currency", "type": "string"},
+      {"name": "correlation_id", "type": "string"}
+    ]
+  }
+]

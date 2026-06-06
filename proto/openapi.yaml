@@ -1,0 +1,183 @@
+openapi: 3.0.3
+info:
+  title: Banking Platform API
+  version: 0.1.0
+servers:
+  - url: http://localhost:8080
+paths:
+  /api/auth/register:
+    post:
+      operationId: register
+      responses:
+        "200":
+          description: Registered user and wallet
+  /api/auth/login:
+    post:
+      operationId: login
+      responses:
+        "200":
+          description: Access and refresh tokens
+  /api/auth/refresh:
+    post:
+      operationId: refresh
+      responses:
+        "200":
+          description: Rotated tokens
+  /api/accounts:
+    post:
+      operationId: createAccount
+      responses:
+        "200":
+          description: Created account
+  /api/accounts/lookup:
+    get:
+      operationId: lookupAccount
+      parameters:
+        - name: email
+          in: query
+          schema:
+            type: string
+        - name: phone
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Account lookup result
+  /api/accounts/{id}/balance:
+    get:
+      operationId: getBalance
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Decimal string balance
+  /api/accounts/{id}/deposit:
+    post:
+      operationId: deposit
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Deposit ledger result
+  /api/accounts/{id}/withdraw:
+    post:
+      operationId: withdraw
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Withdraw ledger result
+  /api/accounts/{id}/history:
+    get:
+      operationId: getHistory
+      responses:
+        "200":
+          description: Transaction history
+  /api/accounts/{id}/ledger:
+    get:
+      operationId: getLedger
+      responses:
+        "200":
+          description: Ledger entries
+  /api/transactions/transfer:
+    post:
+      operationId: transfer
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Transfer state
+  /api/transactions/{id}:
+    get:
+      operationId: getTransaction
+      responses:
+        "200":
+          description: Transaction state
+    delete:
+      operationId: cancelTransaction
+      responses:
+        "200":
+          description: Cancelled transaction
+  /api/transactions:
+    get:
+      operationId: listTransactions
+      responses:
+        "200":
+          description: Transaction list
+  /api/admin/accounts:
+    get:
+      operationId: adminListAccounts
+      responses:
+        "200":
+          description: Admin account list
+  /api/admin/transactions:
+    get:
+      operationId: adminListTransactions
+      responses:
+        "200":
+          description: Admin transaction list
+  /api/admin/accounts/{id}/suspend:
+    post:
+      operationId: adminSuspendAccount
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Suspended account
+  /api/admin/audit:
+    get:
+      operationId: adminListAudit
+      responses:
+        "200":
+          description: Admin audit list
+  /api/audit:
+    get:
+      operationId: listAudit
+      responses:
+        "200":
+          description: Audit list
+  /api/reconciliation/run:
+    post:
+      operationId: runReconciliation
+      responses:
+        "200":
+          description: Reconciliation report
+components:
+  schemas:
+    ErrorResponse:
+      type: object
+      required: [code, message, traceId]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        traceId:
+          type: string
+    MoneyString:
+      type: string
+      pattern: "^-?[0-9]+(\\.[0-9]+)?$"
