@@ -27,7 +27,8 @@ public class WalletEventNotificationListener {
             log.info("duplicate wallet event skipped eventId={} eventType={} aggregateId={}", eventId, eventType, record.key());
             return;
         }
-        notificationSender.send(eventId, eventType, record.key(), record.value());
+        String traceparent = optionalHeader(record, "traceparent", null);
+        notificationSender.send(eventId, eventType, record.key(), record.value(), traceparent);
     }
 
     private String requiredHeader(ConsumerRecord<String, String> record, String name) {

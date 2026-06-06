@@ -29,6 +29,27 @@ class WalletEventNotificationListenerTest {
         assertThat(sender.sentCount()).isEqualTo(1);
     }
 
+    @Test
+    void passesKafkaTraceparentToNotificationSideEffect() {
+        RecordingSender sender = new RecordingSender();
+        WalletEventNotificationListener listener = new WalletEventNotificationListener(new InMemoryProcessedEventStore(), sender);
+        String traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
+        ConsumerRecord<String, String> record = new ConsumerRecord<>(
+            "wallet.events.v1",
+            0,
+            0,
+            "account-1",
+            "{\"amount\":\"100\",\"currency\":\"VND\"}"
+        );
+        record.headers().add("event_id", "event-2".getBytes());
+        record.headers().add("event_type", "TransferCompleted".getBytes());
+        record.headers().add("traceparent", traceparent.getBytes());
+
+        listener.onWalletEvent(record);
+
+        assertThat(sender.lastTraceparent()).isEqualTo(traceparent);
+    }
+
     private static final class InMemoryProcessedEventStore implements ProcessedEventStore {
         private final Set<String> processed = new HashSet<>();
 
@@ -40,14 +61,20 @@ class WalletEventNotificationListenerTest {
 
     private static final class RecordingSender implements NotificationSender {
         private int sentCount;
+        private String lastTraceparent;
 
         @Override
-        public void send(String eventId, String eventType, String aggregateId, String payload) {
+        public void send(String eventId, String eventType, String aggregateId, String payload, String traceparent) {
             sentCount++;
+            lastTraceparent = traceparent;
         }
 
         int sentCount() {
             return sentCount;
+        }
+
+        String lastTraceparent() {
+            return lastTraceparent;
         }
     }
 }
