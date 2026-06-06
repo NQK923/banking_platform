@@ -39,6 +39,7 @@ public class AccountUseCases {
     }
 
     public MovementResponse deposit(UUID accountId, MoneyRequest request, UUID actorId) {
+        UUID actor = requireAdminActor(actorId);
         AccountRecord account = store.account(accountId);
         Money amount = Money.of(request.amount(), account.currency());
         UUID journalId = UUID.randomUUID();
@@ -52,8 +53,8 @@ public class AccountUseCases {
             "ACCOUNT",
             accountId,
             "MoneyDeposited",
-            actorId == null ? "SYSTEM" : "ADMIN",
-            actorId,
+            "ADMIN",
+            actor,
             Map.of("amount", amount.asString()),
             journalId
         );
@@ -61,6 +62,7 @@ public class AccountUseCases {
     }
 
     public MovementResponse withdraw(UUID accountId, MoneyRequest request, UUID actorId) {
+        UUID actor = requireAdminActor(actorId);
         AccountRecord account = store.account(accountId);
         Money amount = Money.of(request.amount(), account.currency());
         UUID journalId = UUID.randomUUID();
@@ -74,12 +76,19 @@ public class AccountUseCases {
             "ACCOUNT",
             accountId,
             "MoneyWithdrawn",
-            actorId == null ? "SYSTEM" : "ADMIN",
-            actorId,
+            "ADMIN",
+            actor,
             Map.of("amount", amount.asString()),
             journalId
         );
         return new MovementResponse(journalId.toString(), balance(accountId));
+    }
+
+    private UUID requireAdminActor(UUID actorId) {
+        if (actorId == null) {
+            throw new DomainException("FORBIDDEN", "Admin actor is required");
+        }
+        return actorId;
     }
 
     public List<WalletTransaction> history(UUID accountId) {
