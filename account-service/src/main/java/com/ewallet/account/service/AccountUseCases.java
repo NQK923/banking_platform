@@ -42,8 +42,21 @@ public class AccountUseCases {
         AccountRecord account = store.account(accountId);
         Money amount = Money.of(request.amount(), account.currency());
         UUID journalId = UUID.randomUUID();
-        store.applyBalancedJournal(journalId, amount, store.cashClearingAccountId(), amount, accountId, "mock deposit");
-        store.audit("ACCOUNT", accountId, "MoneyDeposited", actorId == null ? "SYSTEM" : "ADMIN", actorId, Map.of("amount", amount.asString()), journalId);
+        store.applyBalancedJournalAndAudit(
+            journalId,
+            amount,
+            store.cashClearingAccountId(),
+            amount,
+            accountId,
+            "mock deposit",
+            "ACCOUNT",
+            accountId,
+            "MoneyDeposited",
+            actorId == null ? "SYSTEM" : "ADMIN",
+            actorId,
+            Map.of("amount", amount.asString()),
+            journalId
+        );
         return new MovementResponse(journalId.toString(), balance(accountId));
     }
 
@@ -51,8 +64,21 @@ public class AccountUseCases {
         AccountRecord account = store.account(accountId);
         Money amount = Money.of(request.amount(), account.currency());
         UUID journalId = UUID.randomUUID();
-        store.applyBalancedJournal(journalId, amount, accountId, amount, store.cashClearingAccountId(), "mock withdraw");
-        store.audit("ACCOUNT", accountId, "MoneyWithdrawn", actorId == null ? "SYSTEM" : "ADMIN", actorId, Map.of("amount", amount.asString()), journalId);
+        store.applyBalancedJournalAndAudit(
+            journalId,
+            amount,
+            accountId,
+            amount,
+            store.cashClearingAccountId(),
+            "mock withdraw",
+            "ACCOUNT",
+            accountId,
+            "MoneyWithdrawn",
+            actorId == null ? "SYSTEM" : "ADMIN",
+            actorId,
+            Map.of("amount", amount.asString()),
+            journalId
+        );
         return new MovementResponse(journalId.toString(), balance(accountId));
     }
 

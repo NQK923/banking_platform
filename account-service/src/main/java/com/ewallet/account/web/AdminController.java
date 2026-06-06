@@ -5,6 +5,7 @@ import com.ewallet.account.model.AuditLogRecord;
 import com.ewallet.account.model.WalletTransaction;
 import com.ewallet.account.security.AuthenticatedUser;
 import com.ewallet.account.service.AdminUseCases;
+import com.ewallet.account.service.AdminUseCases.MaintenanceResult;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -24,13 +25,13 @@ public class AdminController {
     }
 
     @GetMapping("/accounts")
-    List<AccountRecord> accounts() {
-        return adminUseCases.accounts();
+    List<AccountRecord> accounts(@AuthenticationPrincipal AuthenticatedUser user) {
+        return adminUseCases.accounts(user == null ? null : user.userId());
     }
 
     @GetMapping("/transactions")
-    List<WalletTransaction> transactions() {
-        return adminUseCases.transactions();
+    List<WalletTransaction> transactions(@AuthenticationPrincipal AuthenticatedUser user) {
+        return adminUseCases.transactions(user == null ? null : user.userId());
     }
 
     @PostMapping("/accounts/{id}/suspend")
@@ -39,7 +40,17 @@ public class AdminController {
     }
 
     @GetMapping("/audit")
-    List<AuditLogRecord> audit() {
-        return adminUseCases.auditLogs();
+    List<AuditLogRecord> audit(@AuthenticationPrincipal AuthenticatedUser user) {
+        return adminUseCases.auditLogs(user == null ? null : user.userId());
+    }
+
+    @PostMapping("/snapshots/write")
+    MaintenanceResult writeSnapshots(@AuthenticationPrincipal AuthenticatedUser user) {
+        return adminUseCases.writeSnapshots(user == null ? null : user.userId());
+    }
+
+    @PostMapping("/projections/rebuild-balances")
+    MaintenanceResult rebuildBalances(@AuthenticationPrincipal AuthenticatedUser user) {
+        return adminUseCases.rebuildBalances(user == null ? null : user.userId());
     }
 }

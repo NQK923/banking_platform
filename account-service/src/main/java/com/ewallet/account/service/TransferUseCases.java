@@ -18,10 +18,14 @@ public class TransferUseCases {
     private static final long CREDIT_DELAY_MILLIS = 250;
     private final WalletStore store;
     private final AuthService authService;
+    private final TransferMetrics metrics;
+    private final FaultInjection faultInjection;
 
-    public TransferUseCases(WalletStore store, AuthService authService) {
+    public TransferUseCases(WalletStore store, AuthService authService, TransferMetrics metrics, FaultInjection faultInjection) {
         this.store = store;
         this.authService = authService;
+        this.metrics = metrics;
+        this.faultInjection = faultInjection;
     }
 
     public WalletTransaction transfer(AuthenticatedUser user, TransferRequest request, String idempotencyHeader) {
@@ -60,8 +64,16 @@ public class TransferUseCases {
             txId, senderId, receiver.id(), amount.amount(), amount.currency(), TransactionStatus.PENDING,
             key, UUID.randomUUID(), Instant.now(), Instant.now(), false
         );
-        store.saveTransaction(transaction);
-        store.audit("TRANSACTION", txId, "TransferInitiated", "USER", sender.userId(), Map.of("amount", amount.asString()), transaction.correlationId());
+        store.saveTransactionAndAudit(
+            transaction,
+            "TRANSACTION",
+            txId,
+            "TransferInitiated",
+            "USER",
+            sender.userId(),
+            Map.of("amount", amount.asString()),
+            transaction.correlationId()
+        );
         CompletableFuture.runAsync(() -> runSaga(txId));
         return transaction;
     }
@@ -70,15 +82,37 @@ public class TransferUseCases {
         WalletTransaction tx = store.findTransaction(txId).orElseThrow();
         Money amount = new Money(tx.amount(), tx.currency());
         try {
-            store.applyBalancedJournal(tx.id(), amount, tx.senderId(), amount, store.systemSuspenseAccountId(), "transfer debit");
             tx = tx.withDebitApplied();
-            store.saveTransaction(tx);
-            store.audit("TRANSACTION", tx.id(), "MoneyDebited", "SYSTEM", null, Map.of("amount", amount.asString()), tx.correlationId());
+            store.applyBalancedJournalSaveTransactionAndAudit(
+                tx.id(),
+                amount,
+                tx.senderId(),
+                amount,
+                store.systemSuspenseAccountId(),
+                "transfer debit",
+                tx,
+                "TRANSACTION",
+                tx.id(),
+                "MoneyDebited",
+                "SYSTEM",
+                null,
+                Map.of("amount", amount.asString()),
+                tx.correlationId()
+            );
         } catch (DomainException ex) {
             WalletTransaction failed = tx.withStatus(TransactionStatus.FAILED);
-            store.saveTransaction(failed);
-            store.audit("TRANSACTION", tx.id(), "MoneyDebitFailed", "SYSTEM", null, Map.of("code", ex.code()), tx.correlationId());
+            store.saveTransactionAndAudit(
+                failed,
+                "TRANSACTION",
+                tx.id(),
+                "MoneyDebitFailed",
+                "SYSTEM",
+                null,
+                Map.of("code", ex.code()),
+                tx.correlationId()
+            );
             store.audit("TRANSACTION", tx.id(), "TransferFailed", "SYSTEM", null, Map.of("code", ex.code()), tx.correlationId());
+            metrics.recordFailed(failed);
             return;
         }
 
@@ -90,11 +124,26 @@ public class TransferUseCases {
         }
 
         try {
-            store.applyBalancedJournal(tx.id(), amount, store.systemSuspenseAccountId(), amount, tx.receiverId(), "transfer credit");
+            faultInjection.maybeFail(FaultInjection.CREDIT_STEP);
             WalletTransaction completed = tx.withStatus(TransactionStatus.COMPLETED);
-            store.saveTransaction(completed);
-            store.audit("TRANSACTION", tx.id(), "MoneyCredited", "SYSTEM", null, Map.of("amount", amount.asString()), tx.correlationId());
+            store.applyBalancedJournalSaveTransactionAndAudit(
+                tx.id(),
+                amount,
+                store.systemSuspenseAccountId(),
+                amount,
+                tx.receiverId(),
+                "transfer credit",
+                completed,
+                "TRANSACTION",
+                tx.id(),
+                "MoneyCredited",
+                "SYSTEM",
+                null,
+                Map.of("amount", amount.asString()),
+                tx.correlationId()
+            );
             store.audit("TRANSACTION", tx.id(), "TransferCompleted", "SYSTEM", null, Map.of("status", "COMPLETED"), tx.correlationId());
+            metrics.recordCompleted(completed);
         } catch (DomainException ex) {
             compensate(tx, amount, ex.code());
         }
@@ -102,13 +151,36 @@ public class TransferUseCases {
 
     private void compensate(WalletTransaction tx, Money amount, String code) {
         WalletTransaction compensating = tx.withStatus(TransactionStatus.COMPENSATING);
-        store.saveTransaction(compensating);
-        store.audit("TRANSACTION", tx.id(), "MoneyCreditFailed", "SYSTEM", null, Map.of("code", code), tx.correlationId());
-        store.applyBalancedJournal(tx.id(), amount, store.systemSuspenseAccountId(), amount, tx.senderId(), "transfer compensation");
+        metrics.recordCompensating();
+        store.saveTransactionAndAudit(
+            compensating,
+            "TRANSACTION",
+            tx.id(),
+            "MoneyCreditFailed",
+            "SYSTEM",
+            null,
+            Map.of("code", code),
+            tx.correlationId()
+        );
         WalletTransaction failed = compensating.withStatus(TransactionStatus.FAILED);
-        store.saveTransaction(failed);
-        store.audit("TRANSACTION", tx.id(), "MoneyDebitReversed", "SYSTEM", null, Map.of("amount", amount.asString()), tx.correlationId());
+        store.applyBalancedJournalSaveTransactionAndAudit(
+            tx.id(),
+            amount,
+            store.systemSuspenseAccountId(),
+            amount,
+            tx.senderId(),
+            "transfer compensation",
+            failed,
+            "TRANSACTION",
+            tx.id(),
+            "MoneyDebitReversed",
+            "SYSTEM",
+            null,
+            Map.of("amount", amount.asString()),
+            tx.correlationId()
+        );
         store.audit("TRANSACTION", tx.id(), "TransferFailed", "SYSTEM", null, Map.of("code", code, "refunded", "true"), tx.correlationId());
+        metrics.recordFailed(failed);
     }
 
     private void sleepBeforeCredit() {
@@ -127,14 +199,17 @@ public class TransferUseCases {
         return store.transactions();
     }
 
-    public WalletTransaction cancel(UUID id) {
+    public WalletTransaction cancel(UUID id, AuthenticatedUser user) {
         WalletTransaction tx = get(id);
         if (tx.debitApplied()) {
             throw new DomainException("CANCEL_NOT_ALLOWED", "Cannot cancel after debit");
         }
+        if (user == null || (!tx.senderId().equals(user.accountId()) && !user.roles().contains("ROLE_ADMIN"))) {
+            throw new DomainException("FORBIDDEN", "Cannot cancel another account's transfer");
+        }
         WalletTransaction cancelled = tx.withStatus(TransactionStatus.CANCELLED);
         store.saveTransaction(cancelled);
-        store.audit("TRANSACTION", id, "TransferCancelled", "USER", null, Map.of("status", "CANCELLED"), tx.correlationId());
+        store.audit("TRANSACTION", id, "TransferCancelled", "USER", user.userId(), Map.of("status", "CANCELLED"), tx.correlationId());
         return cancelled;
     }
 

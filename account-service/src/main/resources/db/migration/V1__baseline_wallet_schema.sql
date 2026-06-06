@@ -84,6 +84,7 @@ CREATE INDEX idx_tx_status ON transactions(status);
 
 CREATE TABLE transaction_outbox (
     id UUID PRIMARY KEY,
+    event_id UUID NOT NULL UNIQUE,
     aggregate_id UUID NOT NULL,
     event_type VARCHAR(100) NOT NULL,
     payload JSONB NOT NULL,
@@ -94,6 +95,7 @@ CREATE TABLE transaction_outbox (
 );
 
 CREATE INDEX idx_outbox_unpublished ON transaction_outbox(published, created_at) WHERE published = FALSE;
+CREATE INDEX idx_outbox_event_id ON transaction_outbox(event_id);
 
 CREATE TABLE audit_logs (
     id UUID PRIMARY KEY,
@@ -125,6 +127,19 @@ CREATE TABLE account_snapshots (
     created_at TIMESTAMPTZ NOT NULL,
     PRIMARY KEY (account_id, version)
 );
+
+CREATE TABLE reconciliation_findings (
+    id UUID PRIMARY KEY,
+    checked_at TIMESTAMPTZ NOT NULL,
+    drift_count INT NOT NULL,
+    zero_drift BOOLEAN NOT NULL,
+    account_id UUID REFERENCES accounts(id),
+    finding VARCHAR(500) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE INDEX idx_reconciliation_findings_checked_at ON reconciliation_findings(checked_at);
+CREATE INDEX idx_reconciliation_findings_account ON reconciliation_findings(account_id);
 
 INSERT INTO currencies (code, scale, display_name, is_active) VALUES
     ('VND', 0, 'Vietnamese Dong', TRUE),

@@ -45,7 +45,7 @@ public class TransactionController {
     }
 
     @DeleteMapping("/{id}")
-    WalletTransaction cancel(@PathVariable UUID id) {
-        return transferUseCases.cancel(id);
+    WalletTransaction cancel(@PathVariable UUID id, @AuthenticationPrincipal AuthenticatedUser user) {
+        return transferUseCases.cancel(id, user);
     }
 }

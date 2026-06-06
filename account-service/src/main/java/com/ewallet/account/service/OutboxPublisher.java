@@ -13,15 +13,18 @@ public class OutboxPublisher {
     private final WalletStore store;
     private final KafkaTemplate<String, String> kafkaTemplate;
     private final String topic;
+    private final FaultInjection faultInjection;
 
     public OutboxPublisher(
         WalletStore store,
         KafkaTemplate<String, String> kafkaTemplate,
-        @Value("${banking.kafka.events-topic:wallet.events.v1}") String topic
+        @Value("${banking.kafka.events-topic:wallet.events.v1}") String topic,
+        FaultInjection faultInjection
     ) {
         this.store = store;
         this.kafkaTemplate = kafkaTemplate;
         this.topic = topic;
+        this.faultInjection = faultInjection;
     }
 
     @Scheduled(fixedDelayString = "${banking.outbox.fixed-delay-ms:1000}")
@@ -33,11 +36,14 @@ public class OutboxPublisher {
                     event.aggregateId().toString(),
                     event.payload()
                 );
+                record.headers().add("event_id", event.eventId().toString().getBytes());
                 record.headers().add("event_type", event.eventType().getBytes());
                 if (event.correlationId() != null) {
                     record.headers().add("correlation_id", event.correlationId().toString().getBytes());
+                    record.headers().add("traceparent", Traceparent.fromCorrelationId(event.correlationId()).getBytes());
                 }
                 kafkaTemplate.send(record).get(5, TimeUnit.SECONDS);
+                faultInjection.maybeFail(FaultInjection.AFTER_PUBLISH_BEFORE_MARK);
                 store.markOutboxPublished(event.id());
             } catch (Exception ex) {
                 store.markOutboxAttempt(event.id());

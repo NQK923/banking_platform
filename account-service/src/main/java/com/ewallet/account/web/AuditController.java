@@ -1,8 +1,10 @@
 package com.ewallet.account.web;
 
 import com.ewallet.account.model.AuditLogRecord;
+import com.ewallet.account.security.AuthenticatedUser;
 import com.ewallet.account.service.AdminUseCases;
 import java.util.List;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -17,7 +19,7 @@ public class AuditController {
     }
 
     @GetMapping
-    List<AuditLogRecord> audit() {
-        return adminUseCases.auditLogs();
+    List<AuditLogRecord> audit(@AuthenticationPrincipal AuthenticatedUser user) {
+        return adminUseCases.auditLogs(user == null ? null : user.userId());
     }
 }

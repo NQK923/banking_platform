@@ -5,6 +5,7 @@ import java.util.UUID;
 
 public record OutboxRecord(
     UUID id,
+    UUID eventId,
     UUID aggregateId,
     String eventType,
     String payload,

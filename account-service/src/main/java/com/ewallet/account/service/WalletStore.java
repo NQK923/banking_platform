@@ -13,6 +13,7 @@ import com.ewallet.common.EntryType;
 import com.ewallet.common.Money;
 import com.ewallet.common.TransactionStatus;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
 import java.math.BigDecimal;
@@ -30,6 +31,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -45,12 +47,26 @@ public class WalletStore {
     private final PasswordEncoder passwordEncoder;
     private final ObjectMapper objectMapper;
     private final BalanceCache balanceCache;
+    private final FaultInjection faultInjection;
+    private final String seedAdminPassword;
+    private final String seedAdminPin;
 
-    public WalletStore(JdbcTemplate jdbc, PasswordEncoder passwordEncoder, ObjectMapper objectMapper, BalanceCache balanceCache) {
+    public WalletStore(
+        JdbcTemplate jdbc,
+        PasswordEncoder passwordEncoder,
+        ObjectMapper objectMapper,
+        BalanceCache balanceCache,
+        FaultInjection faultInjection,
+        @Value("${banking.seed-admin-password}") String seedAdminPassword,
+        @Value("${banking.seed-admin-pin}") String seedAdminPin
+    ) {
         this.jdbc = jdbc;
         this.passwordEncoder = passwordEncoder;
         this.objectMapper = objectMapper;
         this.balanceCache = balanceCache;
+        this.faultInjection = faultInjection;
+        this.seedAdminPassword = seedAdminPassword;
+        this.seedAdminPin = seedAdminPin;
     }
 
     @PostConstruct
@@ -68,8 +84,8 @@ public class WalletStore {
             userId,
             "admin@local.test",
             null,
-            passwordEncoder.encode("Admin123!"),
-            passwordEncoder.encode("000000"),
+            passwordEncoder.encode(seedAdminPassword),
+            passwordEncoder.encode(seedAdminPin),
             "ROLE_ADMIN",
             AccountStatus.ACTIVE.name(),
             Timestamp.from(Instant.now())
@@ -266,6 +282,48 @@ public class WalletStore {
         appendEntry(journalId, creditAccount, credit.amount().abs(), credit.currency(), EntryType.CREDIT, description);
     }
 
+    @Transactional
+    public synchronized void applyBalancedJournalAndAudit(
+        UUID journalId,
+        Money debit,
+        UUID debitAccountId,
+        Money credit,
+        UUID creditAccountId,
+        String description,
+        String entityType,
+        UUID entityId,
+        String eventType,
+        String actorType,
+        UUID actorId,
+        Map<String, String> payload,
+        UUID correlationId
+    ) {
+        applyBalancedJournal(journalId, debit, debitAccountId, credit, creditAccountId, description);
+        audit(entityType, entityId, eventType, actorType, actorId, payload, correlationId);
+    }
+
+    @Transactional
+    public synchronized void applyBalancedJournalSaveTransactionAndAudit(
+        UUID journalId,
+        Money debit,
+        UUID debitAccountId,
+        Money credit,
+        UUID creditAccountId,
+        String description,
+        WalletTransaction transaction,
+        String entityType,
+        UUID entityId,
+        String eventType,
+        String actorType,
+        UUID actorId,
+        Map<String, String> payload,
+        UUID correlationId
+    ) {
+        applyBalancedJournal(journalId, debit, debitAccountId, credit, creditAccountId, description);
+        saveTransaction(transaction);
+        audit(entityType, entityId, eventType, actorType, actorId, payload, correlationId);
+    }
+
     private void lockBalances(UUID first, UUID second) {
         List<UUID> ids = List.of(first, second).stream().distinct().sorted(Comparator.comparing(UUID::toString)).toList();
         for (UUID id : ids) {
@@ -274,12 +332,13 @@ public class WalletStore {
     }
 
     private void appendEntry(UUID journalId, AccountRecord account, BigDecimal amount, String currency, EntryType type, String description) {
-        BigDecimal nextBalance = balance(account.id()).add(amount);
-        if (account.kind() == AccountKind.USER && nextBalance.signum() < 0) {
+        AccountRecord lockedAccount = account(account.id());
+        BigDecimal nextBalance = balance(lockedAccount.id()).add(amount);
+        if (lockedAccount.kind() == AccountKind.USER && nextBalance.signum() < 0) {
             throw new DomainException("INSUFFICIENT_FUNDS", "Insufficient funds");
         }
         LedgerEntryRecord entry = new LedgerEntryRecord(
-            UUID.randomUUID(), journalId, account.id(), amount, currency, type, description, Instant.now()
+            UUID.randomUUID(), journalId, lockedAccount.id(), amount, currency, type, description, Instant.now()
         );
         jdbc.update(
             """
@@ -295,8 +354,16 @@ public class WalletStore {
             entry.description(),
             Timestamp.from(entry.createdAt())
         );
-        long nextVersion = account.version() + 1;
-        jdbc.update("UPDATE accounts SET version = ? WHERE id = ?", nextVersion, account.id());
+        long nextVersion = lockedAccount.version() + 1;
+        int versionUpdated = jdbc.update(
+            "UPDATE accounts SET version = ? WHERE id = ? AND version = ?",
+            nextVersion,
+            lockedAccount.id(),
+            lockedAccount.version()
+        );
+        if (versionUpdated != 1) {
+            throw new DomainException("CONCURRENT_MODIFICATION", "Account version changed during ledger write");
+        }
         jdbc.update(
             """
                 UPDATE account_balances
@@ -306,10 +373,10 @@ public class WalletStore {
             nextBalance,
             nextVersion,
             Timestamp.from(Instant.now()),
-            account.id()
+            lockedAccount.id()
         );
-        balanceCache.put(account.id(), nextBalance);
-        appendAccountEvent(account.id(), eventName(description, type), entry, nextVersion);
+        balanceCache.put(lockedAccount.id(), nextBalance);
+        appendAccountEvent(lockedAccount.id(), eventName(description, type), entry, nextVersion);
     }
 
     private void appendAccountEvent(UUID accountId, String eventType, LedgerEntryRecord entry, long version) {
@@ -398,6 +465,22 @@ public class WalletStore {
         return transaction;
     }
 
+    @Transactional
+    public synchronized WalletTransaction saveTransactionAndAudit(
+        WalletTransaction transaction,
+        String entityType,
+        UUID entityId,
+        String eventType,
+        String actorType,
+        UUID actorId,
+        Map<String, String> payload,
+        UUID correlationId
+    ) {
+        WalletTransaction saved = saveTransaction(transaction);
+        audit(entityType, entityId, eventType, actorType, actorId, payload, correlationId);
+        return saved;
+    }
+
     public Optional<WalletTransaction> findTransaction(UUID id) {
         return queryOne("SELECT * FROM transactions WHERE id = ?", transactionMapper(), id);
     }
@@ -448,6 +531,55 @@ public class WalletStore {
     }
 
     @Transactional
+    public synchronized void freezeAccountsForReconciliation(Set<UUID> accountIds, UUID correlationId) {
+        for (UUID accountId : accountIds) {
+            AccountRecord account = account(accountId);
+            if (account.kind() != AccountKind.USER || account.status() == AccountStatus.SUSPENDED) {
+                continue;
+            }
+            jdbc.update("UPDATE accounts SET status = ? WHERE id = ?", AccountStatus.SUSPENDED.name(), accountId);
+            if (account.userId() != null) {
+                jdbc.update("UPDATE users SET status = ? WHERE id = ?", AccountStatus.SUSPENDED.name(), account.userId());
+            }
+            audit(
+                "ACCOUNT",
+                accountId,
+                "ReconciliationDriftAccountFrozen",
+                "SYSTEM",
+                null,
+                Map.of("status", "SUSPENDED"),
+                correlationId
+            );
+        }
+    }
+
+    @Transactional
+    public synchronized void persistReconciliationFindings(
+        Instant checkedAt,
+        int driftCount,
+        boolean zeroDrift,
+        List<String> findings,
+        Map<String, UUID> affectedAccounts
+    ) {
+        for (String finding : findings) {
+            jdbc.update(
+                """
+                    INSERT INTO reconciliation_findings
+                        (id, checked_at, drift_count, zero_drift, account_id, finding, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                UUID.randomUUID(),
+                Timestamp.from(checkedAt),
+                driftCount,
+                zeroDrift,
+                affectedAccounts.get(finding),
+                finding,
+                Timestamp.from(Instant.now())
+            );
+        }
+    }
+
+    @Transactional
     public synchronized AuditLogRecord audit(
         String entityType,
         UUID entityId,
@@ -476,20 +608,26 @@ public class WalletStore {
             log.correlationId(),
             Timestamp.from(log.createdAt())
         );
+        faultInjection.maybeFail(FaultInjection.BEFORE_OUTBOX);
         appendOutbox(entityId, eventType, payload, correlationId);
+        faultInjection.maybeFail(FaultInjection.AFTER_OUTBOX);
         return log;
     }
 
     private void appendOutbox(UUID aggregateId, String eventType, Map<String, String> payload, UUID correlationId) {
+        UUID eventId = UUID.randomUUID();
+        Map<String, String> outboxPayload = new LinkedHashMap<>(payload);
+        outboxPayload.put("eventId", eventId.toString());
         jdbc.update(
             """
-                INSERT INTO transaction_outbox (id, aggregate_id, event_type, payload, correlation_id, published, attempts, created_at)
-                VALUES (?, ?, ?, ?::jsonb, ?, FALSE, 0, ?)
+                INSERT INTO transaction_outbox (id, event_id, aggregate_id, event_type, payload, correlation_id, published, attempts, created_at)
+                VALUES (?, ?, ?, ?, ?::jsonb, ?, FALSE, 0, ?)
                 """,
             UUID.randomUUID(),
+            eventId,
             aggregateId,
             eventType,
-            toJson(payload),
+            toJson(outboxPayload),
             correlationId,
             Timestamp.from(Instant.now())
         );
@@ -545,6 +683,114 @@ public class WalletStore {
 
     public List<LedgerEntryRecord> ledgerEntriesSnapshot() {
         return jdbc.query("SELECT * FROM ledger_entries ORDER BY created_at", ledgerMapper());
+    }
+
+    public int reconciliationFindingCount() {
+        Integer count = jdbc.queryForObject("SELECT count(*) FROM reconciliation_findings", Integer.class);
+        return count == null ? 0 : count;
+    }
+
+    @Transactional
+    public synchronized int writeAccountSnapshots() {
+        int count = 0;
+        for (AccountRecord account : accounts()) {
+            BigDecimal currentBalance = balance(account.id());
+            Map<String, String> state = Map.of(
+                "balance", currentBalance.toPlainString(),
+                "currency", account.currency(),
+                "accountKind", account.kind().name()
+            );
+            jdbc.update(
+                """
+                    INSERT INTO account_snapshots (account_id, version, state, created_at)
+                    VALUES (?, ?, ?::jsonb, ?)
+                    ON CONFLICT (account_id, version) DO UPDATE
+                        SET state = EXCLUDED.state, created_at = EXCLUDED.created_at
+                    """,
+                account.id(),
+                account.version(),
+                toJson(state),
+                Timestamp.from(Instant.now())
+            );
+            count++;
+        }
+        return count;
+    }
+
+    @Transactional
+    public synchronized int rebuildBalancesFromSnapshotsAndEvents() {
+        int rebuilt = 0;
+        for (AccountRecord account : accounts()) {
+            SnapshotState snapshot = latestSnapshot(account.id()).orElse(new SnapshotState(0, BigDecimal.ZERO));
+            BigDecimal rebuiltBalance = snapshot.balance();
+            long lastVersion = snapshot.version();
+            List<AccountEventAmount> events = accountEventAmountsAfter(account.id(), snapshot.version());
+            for (AccountEventAmount event : events) {
+                rebuiltBalance = rebuiltBalance.add(event.amount());
+                lastVersion = event.version();
+            }
+            jdbc.update(
+                """
+                    INSERT INTO account_balances (account_id, balance, currency, account_kind, last_event_version, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT (account_id) DO UPDATE
+                        SET balance = EXCLUDED.balance,
+                            currency = EXCLUDED.currency,
+                            account_kind = EXCLUDED.account_kind,
+                            last_event_version = EXCLUDED.last_event_version,
+                            updated_at = EXCLUDED.updated_at
+                    """,
+                account.id(),
+                rebuiltBalance,
+                account.currency(),
+                account.kind().name(),
+                lastVersion,
+                Timestamp.from(Instant.now())
+            );
+            balanceCache.put(account.id(), rebuiltBalance);
+            rebuilt++;
+        }
+        return rebuilt;
+    }
+
+    private Optional<SnapshotState> latestSnapshot(UUID accountId) {
+        return queryOne(
+            """
+                SELECT version, state
+                FROM account_snapshots
+                WHERE account_id = ?
+                ORDER BY version DESC
+                LIMIT 1
+                """,
+            (rs, rowNum) -> {
+                JsonNode state = readJson(rs.getString("state"));
+                return new SnapshotState(rs.getLong("version"), new BigDecimal(state.get("balance").asText()));
+            },
+            accountId
+        );
+    }
+
+    private List<AccountEventAmount> accountEventAmountsAfter(UUID accountId, long version) {
+        return jdbc.query(
+            """
+                SELECT version, event_data
+                FROM account_events
+                WHERE account_id = ? AND version > ?
+                ORDER BY version
+                """,
+            (rs, rowNum) -> {
+                JsonNode eventData = readJson(rs.getString("event_data"));
+                return new AccountEventAmount(rs.getLong("version"), new BigDecimal(eventData.get("amount").asText()));
+            },
+            accountId,
+            version
+        );
+    }
+
+    private record SnapshotState(long version, BigDecimal balance) {
+    }
+
+    private record AccountEventAmount(long version, BigDecimal amount) {
     }
 
     private RowMapper<UserRecord> userMapper() {
@@ -620,6 +866,7 @@ public class WalletStore {
     private RowMapper<OutboxRecord> outboxMapper() {
         return (rs, rowNum) -> new OutboxRecord(
             uuid(rs, "id"),
+            uuid(rs, "event_id"),
             uuid(rs, "aggregate_id"),
             rs.getString("event_type"),
             rs.getString("payload"),
@@ -666,6 +913,14 @@ public class WalletStore {
             return objectMapper.writeValueAsString(value);
         } catch (JsonProcessingException ex) {
             throw new IllegalStateException("Unable to serialize JSON payload", ex);
+        }
+    }
+
+    private JsonNode readJson(String value) {
+        try {
+            return objectMapper.readTree(value);
+        } catch (JsonProcessingException ex) {
+            throw new IllegalStateException("Unable to parse JSON payload", ex);
         }
     }
 
