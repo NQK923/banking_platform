@@ -1,0 +1,31 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      routes:
+        - id: account-service
+          uri: ${ACCOUNT_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/auth/**,/api/accounts/**,/api/admin/**
+        - id: transaction-service
+          uri: ${TRANSACTION_SERVICE_URL:http://localhost:8082}
+          predicates:
+            - Path=/api/transactions/**
+        - id: audit-service
+          uri: ${AUDIT_SERVICE_URL:http://localhost:8084}
+          predicates:
+            - Path=/api/audit/**
+        - id: reconciliation-service
+          uri: ${RECONCILIATION_SERVICE_URL:http://localhost:8086}
+          predicates:
+            - Path=/api/reconciliation/**
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
