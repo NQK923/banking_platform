@@ -1,0 +1,51 @@
+groups:
+  - name: wallet-platform
+    rules:
+      - alert: WalletEventsDlqNonEmpty
+        expr: wallet_dlq_depth > 0
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: Wallet event DLQ is non-empty
+          description: Poison wallet events are waiting in wallet.events.v1.DLQ and require inspection or replay.
+      - alert: ReconciliationDriftDetected
+        expr: reconciliation_drift > 0
+        for: 1m
+        labels:
+          severity: page
+        annotations:
+          summary: Wallet reconciliation drift detected
+          description: Reconciliation found ledger/projection/cache drift; affected USER accounts are frozen pending investigation.
+      - alert: WalletTransferFailuresHigh
+        expr: increase(transfer_failed_total[5m]) > 5
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: Wallet transfer failures are elevated
+          description: More than five transfers failed in the last five minutes.
+      - alert: WalletTransferCompensatingHigh
+        expr: increase(transfer_compensating_total[5m]) > 0
+        for: 1m
+        labels:
+          severity: page
+        annotations:
+          summary: Wallet transfer entered compensation
+          description: A transfer required compensation; verify Sad Path B completed and funds were refunded.
+      - alert: WalletSagaLatencyHigh
+        expr: histogram_quantile(0.95, rate(wallet_saga_latency_seconds_bucket[5m])) > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Wallet saga latency is high
+          description: The p95 transfer Saga latency is above five seconds.
+      - alert: WalletConsumerLagHigh
+        expr: wallet_consumer_lag > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Wallet event consumer lag is high
+          description: Notification consumer lag is above 100 records.

@@ -1,0 +1,36 @@
+{
+  "title": "Wallet Backend Production Readiness",
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "title": "Transfer Failures",
+      "type": "timeseries",
+      "targets": [{"expr": "increase(transfer_failed_total[5m])"}]
+    },
+    {
+      "title": "Transfers Compensating",
+      "type": "timeseries",
+      "targets": [{"expr": "increase(transfer_compensating_total[5m])"}]
+    },
+    {
+      "title": "Saga Latency p95",
+      "type": "timeseries",
+      "targets": [{"expr": "histogram_quantile(0.95, rate(wallet_saga_latency_seconds_bucket[5m]))"}]
+    },
+    {
+      "title": "Notification Consumer Lag",
+      "type": "timeseries",
+      "targets": [{"expr": "wallet_consumer_lag"}]
+    },
+    {
+      "title": "Wallet DLQ Depth",
+      "type": "timeseries",
+      "targets": [{"expr": "wallet_dlq_depth"}]
+    },
+    {
+      "title": "Reconciliation Drift",
+      "type": "timeseries",
+      "targets": [{"expr": "reconciliation_drift"}]
+    }
+  ]
+}

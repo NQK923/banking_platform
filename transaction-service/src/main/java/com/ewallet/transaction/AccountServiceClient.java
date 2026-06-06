@@ -37,6 +37,7 @@ public class AccountServiceClient {
         copy(inbound, outbound, HttpHeaders.AUTHORIZATION);
         copy(inbound, outbound, "Idempotency-Key");
         copy(inbound, outbound, "X-Trace-Id");
+        copy(inbound, outbound, "traceparent");
     }
 
     private void copy(HttpHeaders inbound, HttpHeaders outbound, String name) {

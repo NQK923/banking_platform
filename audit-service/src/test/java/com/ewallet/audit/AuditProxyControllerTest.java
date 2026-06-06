@@ -31,7 +31,8 @@ class AuditProxyControllerTest {
 
         mvc.perform(get("/api/audit")
                 .header(HttpHeaders.AUTHORIZATION, "Bearer token")
-                .header("X-Trace-Id", "trace-1"))
+                .header("X-Trace-Id", "trace-1")
+                .header("traceparent", "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"))
             .andExpect(status().isOk())
             .andExpect(content().json("[{\"eventType\":\"AccountSuspended\"}]"));
 
@@ -39,5 +40,7 @@ class AuditProxyControllerTest {
         verify(accountServiceClient).getAudit(headers.capture());
         org.assertj.core.api.Assertions.assertThat(headers.getValue().getFirst(HttpHeaders.AUTHORIZATION)).isEqualTo("Bearer token");
         org.assertj.core.api.Assertions.assertThat(headers.getValue().getFirst("X-Trace-Id")).isEqualTo("trace-1");
+        org.assertj.core.api.Assertions.assertThat(headers.getValue().getFirst("traceparent"))
+            .isEqualTo("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01");
     }
 }

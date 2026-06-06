@@ -26,6 +26,7 @@ public class AccountServiceClient {
         HttpHeaders headers = new HttpHeaders();
         copy(inboundHeaders, headers, HttpHeaders.AUTHORIZATION);
         copy(inboundHeaders, headers, "X-Trace-Id");
+        copy(inboundHeaders, headers, "traceparent");
         return restTemplate.exchange(baseUrl + "/api/reconciliation/run", HttpMethod.POST, new HttpEntity<>("{}", headers), String.class);
     }
 
