@@ -4,7 +4,7 @@ services:
     environment:
       POSTGRES_DB: banking_platform
       POSTGRES_USER: banking
-      POSTGRES_PASSWORD: banking
+      POSTGRES_PASSWORD: ${BANKING_POSTGRES_PASSWORD:?BANKING_POSTGRES_PASSWORD required}
     ports:
       - "5432:5432"
     healthcheck:
@@ -77,10 +77,14 @@ services:
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/banking_platform
       SPRING_DATASOURCE_USERNAME: banking
-      SPRING_DATASOURCE_PASSWORD: banking
+      SPRING_DATASOURCE_PASSWORD: ${BANKING_POSTGRES_PASSWORD:?BANKING_POSTGRES_PASSWORD required}
+      BANKING_JWT_SECRET: ${BANKING_JWT_SECRET:?BANKING_JWT_SECRET required}
+      BANKING_SEED_ADMIN_PASSWORD: ${BANKING_SEED_ADMIN_PASSWORD:?BANKING_SEED_ADMIN_PASSWORD required}
+      BANKING_SEED_ADMIN_PIN: ${BANKING_SEED_ADMIN_PIN:?BANKING_SEED_ADMIN_PIN required}
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: 6379
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN required}
     ports:
       - "8081:8081"
       - "9090:9090"
@@ -96,6 +100,7 @@ services:
       - ./transaction-service/build/libs/transaction-service-0.1.0-SNAPSHOT.jar:/app/transaction-service.jar:ro
     environment:
       BANKING_ACCOUNT_SERVICE_BASE_URL: http://account-service:8081
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN required}
     ports:
       - "8082:8082"
 
@@ -110,6 +115,7 @@ services:
       - ./audit-service/build/libs/audit-service-0.1.0-SNAPSHOT.jar:/app/audit-service.jar:ro
     environment:
       BANKING_ACCOUNT_SERVICE_BASE_URL: http://account-service:8081
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN required}
     ports:
       - "8084:8084"
 
@@ -124,6 +130,7 @@ services:
       - ./reconciliation-service/build/libs/reconciliation-service-0.1.0-SNAPSHOT.jar:/app/reconciliation-service.jar:ro
     environment:
       BANKING_ACCOUNT_SERVICE_BASE_URL: http://account-service:8081
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN required}
     ports:
       - "8086:8086"
 
@@ -132,12 +139,17 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     working_dir: /app
     command: ["java", "-jar", "/app/notification-service.jar"]
     volumes:
       - ./notification-service/build/libs/notification-service-0.1.0-SNAPSHOT.jar:/app/notification-service.jar:ro
     environment:
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN required}
     ports:
       - "8083:8083"
 
@@ -154,6 +166,8 @@ services:
         condition: service_started
       notification-service:
         condition: service_started
+      redis:
+        condition: service_healthy
     working_dir: /app
     command: ["java", "-jar", "/app/api-gateway.jar"]
     volumes:
@@ -163,5 +177,9 @@ services:
       TRANSACTION_SERVICE_URL: http://transaction-service:8082
       AUDIT_SERVICE_URL: http://audit-service:8084
       RECONCILIATION_SERVICE_URL: http://reconciliation-service:8086
+      NOTIFICATION_SERVICE_URL: http://notification-service:8083
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN required}
     ports:
       - "8080:8080"

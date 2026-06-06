@@ -4,9 +4,25 @@ server:
 spring:
   application:
     name: api-gateway
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
   cloud:
     gateway:
+      default-filters:
+        - name: RequestRateLimiter
+          args:
+            redis-rate-limiter.replenishRate: ${GATEWAY_RATE_REPLENISH:20}
+            redis-rate-limiter.burstCapacity: ${GATEWAY_RATE_BURST:40}
+            key-resolver: "#{@userOrIpKeyResolver}"
       routes:
+        - id: notification-dlq-admin
+          uri: ${NOTIFICATION_SERVICE_URL:http://localhost:8083}
+          predicates:
+            - Path=/api/admin/dlq,/api/admin/dlq/**
+          filters:
+            - AddRequestHeader=X-Service-Token, ${INTERNAL_SERVICE_TOKEN}
         - id: account-service
           uri: ${ACCOUNT_SERVICE_URL:http://localhost:8081}
           predicates:
@@ -15,14 +31,20 @@ spring:
           uri: ${TRANSACTION_SERVICE_URL:http://localhost:8082}
           predicates:
             - Path=/api/transactions/**
+          filters:
+            - AddRequestHeader=X-Service-Token, ${INTERNAL_SERVICE_TOKEN}
         - id: audit-service
           uri: ${AUDIT_SERVICE_URL:http://localhost:8084}
           predicates:
             - Path=/api/audit/**
+          filters:
+            - AddRequestHeader=X-Service-Token, ${INTERNAL_SERVICE_TOKEN}
         - id: reconciliation-service
           uri: ${RECONCILIATION_SERVICE_URL:http://localhost:8086}
           predicates:
             - Path=/api/reconciliation/**
+          filters:
+            - AddRequestHeader=X-Service-Token, ${INTERNAL_SERVICE_TOKEN}
 
 management:
   endpoints:

@@ -17,6 +17,22 @@ $HealthChecks = @(
 
 Push-Location $Root
 try {
+    if (-not $env:BANKING_POSTGRES_PASSWORD) {
+        $env:BANKING_POSTGRES_PASSWORD = [guid]::NewGuid().ToString("N")
+    }
+    if (-not $env:BANKING_JWT_SECRET) {
+        $env:BANKING_JWT_SECRET = [guid]::NewGuid().ToString("N") + [guid]::NewGuid().ToString("N")
+    }
+    if (-not $env:INTERNAL_SERVICE_TOKEN) {
+        $env:INTERNAL_SERVICE_TOKEN = [guid]::NewGuid().ToString("N")
+    }
+    if (-not $env:BANKING_SEED_ADMIN_PASSWORD) {
+        $env:BANKING_SEED_ADMIN_PASSWORD = "Local-" + [guid]::NewGuid().ToString("N")
+    }
+    if (-not $env:BANKING_SEED_ADMIN_PIN) {
+        $env:BANKING_SEED_ADMIN_PIN = (Get-Random -Minimum 100000 -Maximum 999999).ToString()
+    }
+
     if (-not $SkipBuild) {
         & .\gradlew.bat clean build
     }

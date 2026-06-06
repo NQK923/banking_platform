@@ -16,9 +16,11 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
 @WebMvcTest(TransactionProxyController.class)
+@TestPropertySource(properties = "banking.internal-service-token=test-token")
 class TransactionProxyControllerTest {
     @Autowired
     MockMvc mvc;
@@ -37,6 +39,8 @@ class TransactionProxyControllerTest {
                 .header(HttpHeaders.AUTHORIZATION, "Bearer token")
                 .header("Idempotency-Key", "idem-1")
                 .header("X-Trace-Id", "trace-1")
+                .header("traceparent", "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01")
+                .header("X-Service-Token", "test-token")
                 .content(body))
             .andExpect(status().isAccepted())
             .andExpect(content().json("{\"status\":\"PENDING\"}"));
@@ -46,5 +50,15 @@ class TransactionProxyControllerTest {
         org.assertj.core.api.Assertions.assertThat(headers.getValue().getFirst(HttpHeaders.AUTHORIZATION)).isEqualTo("Bearer token");
         org.assertj.core.api.Assertions.assertThat(headers.getValue().getFirst("Idempotency-Key")).isEqualTo("idem-1");
         org.assertj.core.api.Assertions.assertThat(headers.getValue().getFirst("X-Trace-Id")).isEqualTo("trace-1");
+        org.assertj.core.api.Assertions.assertThat(headers.getValue().getFirst("traceparent"))
+            .isEqualTo("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01");
+    }
+
+    @Test
+    void rejectsRequestWithoutInternalServiceToken() throws Exception {
+        mvc.perform(post("/api/transactions/transfer")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+            .andExpect(status().isForbidden());
     }
 }

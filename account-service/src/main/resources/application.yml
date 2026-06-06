@@ -5,9 +5,9 @@ spring:
   application:
     name: account-service
   datasource:
-    url: jdbc:postgresql://localhost:5432/banking_platform
-    username: banking
-    password: banking
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/banking_platform}
+    username: ${SPRING_DATASOURCE_USERNAME:banking}
+    password: ${SPRING_DATASOURCE_PASSWORD}
   flyway:
     enabled: true
   kafka:
@@ -27,6 +27,8 @@ management:
         include: health,info,prometheus
 
 banking:
-  jwt-secret: "dev-only-change-me-dev-only-change-me"
+  jwt-secret: ${BANKING_JWT_SECRET}
+  seed-admin-password: ${BANKING_SEED_ADMIN_PASSWORD}
+  seed-admin-pin: ${BANKING_SEED_ADMIN_PIN}
   grpc:
     port: 9090

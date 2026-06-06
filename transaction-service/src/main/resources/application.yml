@@ -8,6 +8,7 @@ spring:
 banking:
   account-service:
     base-url: http://localhost:8081
+  internal-service-token: ${INTERNAL_SERVICE_TOKEN:}
 
 management:
   endpoints:

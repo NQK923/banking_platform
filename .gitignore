@@ -40,3 +40,5 @@ audit-service.out
 audit-service.err
 reconciliation-service.out
 reconciliation-service.err
+.env
+!.env.example

@@ -3,6 +3,10 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$AdminPassword = $env:BANKING_SEED_ADMIN_PASSWORD
+if (-not $AdminPassword) {
+    throw "BANKING_SEED_ADMIN_PASSWORD must be set for smoke tests"
+}
 
 function Invoke-Json {
     param(
@@ -71,7 +75,7 @@ $creditFailReceiver = Invoke-Json POST "/api/auth/register" @{
 }
 $admin = Invoke-Json POST "/api/auth/login" @{
     identifier = "admin@local.test"
-    password = "Admin123!"
+    password = $AdminPassword
 }
 
 Invoke-Json POST "/api/accounts/$($alice.accountId)/deposit" @{ amount = "1000" } -Token $admin.accessToken | Out-Null
