@@ -63,4 +63,11 @@ class ContractFilesTest {
             assertTrue(avro.contains(required), "Missing Avro contract token: " + required);
         }
     }
+
+    @Test
+    void prometheusAlertsContainReconciliationDriftCondition() throws Exception {
+        String alerts = Files.readString(Path.of("../observability/prometheus-alerts.yml"));
+        assertTrue(alerts.contains("ReconciliationDriftDetected"));
+        assertTrue(alerts.contains("expr: reconciliation_drift > 0"));
+    }
 }

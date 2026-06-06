@@ -9,6 +9,7 @@ import com.ewallet.common.TransactionStatus;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.MeterRegistry;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -208,9 +209,16 @@ class AccountServiceFlowTest {
         assertThat(failed).isEqualTo(5);
         assertThat(getJson("/api/accounts/" + sender.accountId() + "/balance", sender.accessToken()).get("balance").asText()).isEqualTo("0");
         assertThat(getJson("/api/accounts/" + receiver.accountId() + "/balance", receiver.accessToken()).get("balance").asText()).isEqualTo("500");
+        BigDecimal storedSenderBalance = jdbc.queryForObject(
+            "SELECT balance FROM account_balances WHERE account_id = ?",
+            BigDecimal.class,
+            UUID.fromString(sender.accountId())
+        );
+        assertThat(storedSenderBalance).isGreaterThanOrEqualTo(BigDecimal.ZERO);
         JsonNode report = postJson("/api/reconciliation/run", admin, "{}", null)
             .andExpect(status().isOk()).andReturnJson();
         assertThat(report.get("zeroDrift").asBoolean()).isTrue();
+        assertThat(report.get("totalByCurrency").get("VND").decimalValue()).isEqualByComparingTo(BigDecimal.ZERO);
     }
 
     @Test
@@ -226,6 +234,7 @@ class AccountServiceFlowTest {
 
         assertThat(report.get("zeroDrift").asBoolean()).isFalse();
         assertThat(report.get("driftCount").asInt()).isGreaterThan(0);
+        assertThat(report.get("findings").toString()).contains("balance drift for account " + user.accountId());
         assertThat(meterRegistry.find("reconciliation_drift").gauge().value()).isGreaterThan(0);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM reconciliation_findings", Integer.class)).isGreaterThan(0);
         assertThat(getJson("/api/accounts/" + user.accountId(), user.accessToken()).get("status").asText()).isEqualTo("SUSPENDED");
