@@ -39,6 +39,7 @@ public class TransferUseCases {
             throw new DomainException("IDEMPOTENCY_KEY_REQUIRED", "Idempotency key is required");
         }
         return store.findTransactionByIdempotency(senderId, key)
+            .map(this::resumeIfInFlight)
             .orElseGet(() -> createTransfer(senderId, request, key));
     }
 
@@ -80,39 +81,49 @@ public class TransferUseCases {
 
     private void runSaga(UUID txId) {
         WalletTransaction tx = store.findTransaction(txId).orElseThrow();
+        if (tx.status() == TransactionStatus.COMPLETED || tx.status() == TransactionStatus.FAILED || tx.status() == TransactionStatus.CANCELLED) {
+            return;
+        }
         Money amount = new Money(tx.amount(), tx.currency());
-        try {
-            tx = tx.withDebitApplied();
-            store.applyBalancedJournalSaveTransactionAndAudit(
-                tx.id(),
-                amount,
-                tx.senderId(),
-                amount,
-                store.systemSuspenseAccountId(),
-                "transfer debit",
-                tx,
-                "TRANSACTION",
-                tx.id(),
-                "MoneyDebited",
-                "SYSTEM",
-                null,
-                Map.of("amount", amount.asString()),
-                tx.correlationId()
-            );
-        } catch (DomainException ex) {
-            WalletTransaction failed = tx.withStatus(TransactionStatus.FAILED);
-            store.saveTransactionAndAudit(
-                failed,
-                "TRANSACTION",
-                tx.id(),
-                "MoneyDebitFailed",
-                "SYSTEM",
-                null,
-                Map.of("code", ex.code()),
-                tx.correlationId()
-            );
-            store.audit("TRANSACTION", tx.id(), "TransferFailed", "SYSTEM", null, Map.of("code", ex.code()), tx.correlationId());
-            metrics.recordFailed(failed);
+        if (!tx.debitApplied()) {
+            try {
+                tx = tx.withDebitApplied();
+                store.applyBalancedJournalSaveTransactionAndAudit(
+                    tx.id(),
+                    amount,
+                    tx.senderId(),
+                    amount,
+                    store.systemSuspenseAccountId(),
+                    "transfer debit",
+                    tx,
+                    "TRANSACTION",
+                    tx.id(),
+                    "MoneyDebited",
+                    "SYSTEM",
+                    null,
+                    Map.of("amount", amount.asString()),
+                    tx.correlationId()
+                );
+            } catch (DomainException ex) {
+                WalletTransaction failed = tx.withStatus(TransactionStatus.FAILED);
+                store.saveTransactionAndAudit(
+                    failed,
+                    "TRANSACTION",
+                    tx.id(),
+                    "MoneyDebitFailed",
+                    "SYSTEM",
+                    null,
+                    Map.of("code", ex.code()),
+                    tx.correlationId()
+                );
+                store.audit("TRANSACTION", tx.id(), "TransferFailed", "SYSTEM", null, Map.of("code", ex.code()), tx.correlationId());
+                metrics.recordFailed(failed);
+                return;
+            }
+        }
+
+        if (tx.status() == TransactionStatus.COMPENSATING) {
+            compensate(tx, amount, "SAGA_REPLAY");
             return;
         }
 
@@ -189,6 +200,13 @@ public class TransferUseCases {
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
         }
+    }
+
+    private WalletTransaction resumeIfInFlight(WalletTransaction transaction) {
+        if (transaction.status() == TransactionStatus.PENDING || transaction.status() == TransactionStatus.COMPENSATING) {
+            CompletableFuture.runAsync(() -> runSaga(transaction.id()));
+        }
+        return transaction;
     }
 
     public WalletTransaction get(UUID id) {

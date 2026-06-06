@@ -299,6 +299,7 @@ public class WalletStore {
         UUID correlationId
     ) {
         applyBalancedJournal(journalId, debit, debitAccountId, credit, creditAccountId, description);
+        faultInjection.maybeFail(FaultInjection.AFTER_STATE_BEFORE_OUTBOX);
         audit(entityType, entityId, eventType, actorType, actorId, payload, correlationId);
     }
 
@@ -321,6 +322,7 @@ public class WalletStore {
     ) {
         applyBalancedJournal(journalId, debit, debitAccountId, credit, creditAccountId, description);
         saveTransaction(transaction);
+        faultInjection.maybeFail(FaultInjection.AFTER_STATE_BEFORE_OUTBOX);
         audit(entityType, entityId, eventType, actorType, actorId, payload, correlationId);
     }
 
@@ -477,6 +479,7 @@ public class WalletStore {
         UUID correlationId
     ) {
         WalletTransaction saved = saveTransaction(transaction);
+        faultInjection.maybeFail(FaultInjection.AFTER_STATE_BEFORE_OUTBOX);
         audit(entityType, entityId, eventType, actorType, actorId, payload, correlationId);
         return saved;
     }
