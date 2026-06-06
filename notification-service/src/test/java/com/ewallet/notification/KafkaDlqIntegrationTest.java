@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -60,9 +61,14 @@ class KafkaDlqIntegrationTest {
             assertThat(dlqRecord.key()).isEqualTo("account-1");
             assertThat(dlqRecord.value()).isEqualTo("poison-value");
 
+            DlqReplayService replayService = new DlqReplayService(consumerFactory("dlq-replayer"), template, "wallet.events.v1");
+            assertThat(replayService.depth()).isGreaterThanOrEqualTo(1);
+            SimpleMeterRegistry registry = new SimpleMeterRegistry();
+            new DlqMetrics(registry, replayService);
+            assertThat(registry.find("wallet_dlq_depth").gauge().value()).isGreaterThanOrEqualTo(1);
+
             container.stop();
 
-            DlqReplayService replayService = new DlqReplayService(consumerFactory("dlq-replayer"), template, "wallet.events.v1");
             DlqReplayResult result = replayService.replay(new DlqReplayRequest(dlqRecord.partition(), dlqRecord.offset()));
             assertThat(result.replayed()).isTrue();
 
