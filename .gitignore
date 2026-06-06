@@ -12,6 +12,7 @@
 
 # Package Files #
 *.jar
+!gradle/wrapper/gradle-wrapper.jar
 *.war
 *.nar
 *.ear
@@ -22,3 +23,20 @@
 # virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
 hs_err_pid*
 replay_pid*
+
+.gradle/
+build/
+**/build/
+.idea/
+bootrun.out
+bootrun.err
+account-service.out
+account-service.err
+transaction-service.out
+transaction-service.err
+api-gateway.out
+api-gateway.err
+audit-service.out
+audit-service.err
+reconciliation-service.out
+reconciliation-service.err
