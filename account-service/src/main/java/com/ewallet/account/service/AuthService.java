@@ -7,8 +7,11 @@ import com.ewallet.common.DomainException;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import java.time.Instant;
+import java.time.Duration;
 
 @Service
 public class AuthService {
@@ -48,12 +51,70 @@ public class AuthService {
         return issueTokens(user, account);
     }
 
+    @Transactional
     public void verifyPin(UUID userId, String pin) {
         UserRecord user = store.findUser(userId)
             .orElseThrow(() -> new DomainException("AUTH_INVALID", "Unknown user"));
+
+        if (user.pinLockedUntil() != null && user.pinLockedUntil().isAfter(Instant.now())) {
+            throw new DomainException("PIN_LOCKED", "Transaction PIN is locked due to too many failed attempts. Try again later.");
+        }
+
         if (!passwordEncoder.matches(pin, user.pinHash())) {
+            int newAttempts = user.failedPinAttempts() + 1;
+            Instant lockUntil = null;
+            if (newAttempts >= 5) {
+                lockUntil = Instant.now().plus(Duration.ofMinutes(15));
+            }
+            store.saveUser(new UserRecord(
+                user.id(), user.email(), user.phone(), user.passwordHash(), user.pinHash(),
+                user.refreshTokenHash(), user.roles(), user.status(), user.createdAt(),
+                newAttempts, lockUntil
+            ));
             throw new DomainException("PIN_INVALID", "Invalid transaction PIN");
         }
+
+        if (user.failedPinAttempts() > 0) {
+            store.saveUser(new UserRecord(
+                user.id(), user.email(), user.phone(), user.passwordHash(), user.pinHash(),
+                user.refreshTokenHash(), user.roles(), user.status(), user.createdAt(),
+                0, null
+            ));
+        }
+    }
+
+    @Transactional
+    public void changePin(UUID userId, String currentPin, String newPin) {
+        UserRecord user = store.findUser(userId)
+            .orElseThrow(() -> new DomainException("AUTH_INVALID", "Unknown user"));
+
+        if (user.pinLockedUntil() != null && user.pinLockedUntil().isAfter(Instant.now())) {
+            throw new DomainException("PIN_LOCKED", "Transaction PIN is locked due to too many failed attempts. Try again later.");
+        }
+
+        if (!passwordEncoder.matches(currentPin, user.pinHash())) {
+            int newAttempts = user.failedPinAttempts() + 1;
+            Instant lockUntil = null;
+            if (newAttempts >= 5) {
+                lockUntil = Instant.now().plus(Duration.ofMinutes(15));
+            }
+            store.saveUser(new UserRecord(
+                user.id(), user.email(), user.phone(), user.passwordHash(), user.pinHash(),
+                user.refreshTokenHash(), user.roles(), user.status(), user.createdAt(),
+                newAttempts, lockUntil
+            ));
+            throw new DomainException("PIN_INVALID", "Mã PIN hiện tại không chính xác. Vui lòng thử lại.");
+        }
+
+        if (newPin == null || !newPin.matches("^\\d{6}$")) {
+            throw new DomainException("INVALID_PIN_FORMAT", "Mã PIN mới phải bao gồm đúng 6 chữ số.");
+        }
+
+        store.saveUser(new UserRecord(
+            user.id(), user.email(), user.phone(), user.passwordHash(), passwordEncoder.encode(newPin),
+            user.refreshTokenHash(), user.roles(), user.status(), user.createdAt(),
+            0, null
+        ));
     }
 
     private UserRecord lookupUser(String identifier) {

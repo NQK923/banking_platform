@@ -30,7 +30,8 @@ class TransferUseCasesSecurityTest {
             null,
             "100",
             UUID.randomUUID().toString(),
-            "123456"
+            "123456",
+            null
         );
 
         assertThatThrownBy(() -> useCases.transfer(user, request, null))
@@ -56,7 +57,9 @@ class TransferUseCasesSecurityTest {
             correlationId,
             Instant.now(),
             Instant.now(),
-            false
+            false,
+            null,
+            null
         );
         when(store.findTransaction(transactionId)).thenReturn(Optional.of(pending));
 

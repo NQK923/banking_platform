@@ -14,13 +14,15 @@ public record UserRecord(
     String refreshTokenHash,
     Set<String> roles,
     AccountStatus status,
-    Instant createdAt
+    Instant createdAt,
+    int failedPinAttempts,
+    Instant pinLockedUntil
 ) {
     public UserRecord withRefreshTokenHash(String hash) {
-        return new UserRecord(id, email, phone, passwordHash, pinHash, hash, roles, status, createdAt);
+        return new UserRecord(id, email, phone, passwordHash, pinHash, hash, roles, status, createdAt, failedPinAttempts, pinLockedUntil);
     }
 
     public UserRecord withStatus(AccountStatus newStatus) {
-        return new UserRecord(id, email, phone, passwordHash, pinHash, refreshTokenHash, roles, newStatus, createdAt);
+        return new UserRecord(id, email, phone, passwordHash, pinHash, refreshTokenHash, roles, newStatus, createdAt, failedPinAttempts, pinLockedUntil);
     }
 }

@@ -14,6 +14,7 @@ import com.ewallet.account.security.AuthenticatedUser;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -64,8 +65,29 @@ public class AccountController {
     }
 
     @GetMapping("/{id}/history")
-    List<WalletTransaction> history(@PathVariable UUID id) {
-        return accountUseCases.history(id);
+    ResponseEntity<?> history(
+        @PathVariable UUID id,
+        @RequestParam(required = false) Integer page,
+        @RequestParam(required = false) Integer size
+    ) {
+        if (page == null) {
+            return ResponseEntity.ok(accountUseCases.history(id));
+        }
+        return ResponseEntity.ok(accountUseCases.historyPaginated(id, page, size));
+    }
+
+    @PostMapping("/pin/change")
+    void changePin(
+        @AuthenticationPrincipal AuthenticatedUser user,
+        @RequestBody PinChangeRequest request
+    ) {
+        if (user == null) {
+            throw new com.ewallet.common.DomainException("FORBIDDEN", "User session is required");
+        }
+        authService.changePin(user.userId(), request.currentPin(), request.newPin());
+    }
+
+    public record PinChangeRequest(String currentPin, String newPin) {
     }
 
     @GetMapping("/{id}/ledger")

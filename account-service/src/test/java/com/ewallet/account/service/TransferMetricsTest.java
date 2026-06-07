@@ -26,7 +26,9 @@ class TransferMetricsTest {
             UUID.randomUUID(),
             Instant.now().minusSeconds(1),
             Instant.now(),
-            false
+            false,
+            null,
+            null
         );
 
         metrics.recordFailed(transaction);

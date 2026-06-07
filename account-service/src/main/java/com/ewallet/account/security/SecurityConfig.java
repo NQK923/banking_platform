@@ -20,7 +20,7 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/actuator/health", "/api/auth/**", "/error").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/accounts").permitAll()
-                .requestMatchers(HttpMethod.POST, "/api/accounts/*/deposit", "/api/accounts/*/withdraw").hasRole("ADMIN")
+                .requestMatchers(HttpMethod.POST, "/api/accounts/*/deposit", "/api/accounts/*/withdraw").hasAnyRole("USER", "ADMIN")
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")
                 .anyRequest().authenticated()
             )

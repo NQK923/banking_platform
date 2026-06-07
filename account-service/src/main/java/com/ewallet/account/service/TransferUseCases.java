@@ -63,7 +63,7 @@ public class TransferUseCases {
         UUID txId = UUID.randomUUID();
         WalletTransaction transaction = new WalletTransaction(
             txId, senderId, receiver.id(), amount.amount(), amount.currency(), TransactionStatus.PENDING,
-            key, UUID.randomUUID(), Instant.now(), Instant.now(), false
+            key, UUID.randomUUID(), Instant.now(), Instant.now(), false, request.note(), null
         );
         store.saveTransactionAndAudit(
             transaction,
@@ -105,7 +105,8 @@ public class TransferUseCases {
                     tx.correlationId()
                 );
             } catch (DomainException ex) {
-                WalletTransaction failed = tx.withStatus(TransactionStatus.FAILED);
+                String reason = ex.code() + ": " + ex.getMessage();
+                WalletTransaction failed = tx.withStatus(TransactionStatus.FAILED).withFailureReason(reason);
                 store.saveTransactionAndAudit(
                     failed,
                     "TRANSACTION",
@@ -160,7 +161,8 @@ public class TransferUseCases {
         }
     }
 
-    private void compensate(WalletTransaction tx, Money amount, String code) {
+    private void compensate(WalletTransaction tx, Money amount, String reason) {
+        String failureReason = reason.contains(":") ? reason : reason + ": Credit failed, transaction compensated";
         WalletTransaction compensating = tx.withStatus(TransactionStatus.COMPENSATING);
         metrics.recordCompensating();
         store.saveTransactionAndAudit(
@@ -170,10 +172,10 @@ public class TransferUseCases {
             "MoneyCreditFailed",
             "SYSTEM",
             null,
-            Map.of("code", code),
+            Map.of("code", reason.contains(":") ? reason.split(":")[0].trim() : reason),
             tx.correlationId()
         );
-        WalletTransaction failed = compensating.withStatus(TransactionStatus.FAILED);
+        WalletTransaction failed = compensating.withStatus(TransactionStatus.FAILED).withFailureReason(failureReason);
         store.applyBalancedJournalSaveTransactionAndAudit(
             tx.id(),
             amount,
@@ -190,7 +192,7 @@ public class TransferUseCases {
             Map.of("amount", amount.asString()),
             tx.correlationId()
         );
-        store.audit("TRANSACTION", tx.id(), "TransferFailed", "SYSTEM", null, Map.of("code", code, "refunded", "true"), tx.correlationId());
+        store.audit("TRANSACTION", tx.id(), "TransferFailed", "SYSTEM", null, Map.of("code", reason.contains(":") ? reason.split(":")[0].trim() : reason, "refunded", "true"), tx.correlationId());
         metrics.recordFailed(failed);
     }
 
@@ -237,7 +239,8 @@ public class TransferUseCases {
         String recipientPhone,
         String amount,
         String idempotencyKey,
-        String pin
+        String pin,
+        String note
     ) {
     }
 }

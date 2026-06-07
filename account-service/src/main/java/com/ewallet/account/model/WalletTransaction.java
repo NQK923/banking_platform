@@ -16,19 +16,28 @@ public record WalletTransaction(
     UUID correlationId,
     Instant createdAt,
     Instant updatedAt,
-    boolean debitApplied
+    boolean debitApplied,
+    String note,
+    String failureReason
 ) {
     public WalletTransaction withStatus(TransactionStatus newStatus) {
         return new WalletTransaction(
             id, senderId, receiverId, amount, currency, newStatus, idempotencyKey,
-            correlationId, createdAt, Instant.now(), debitApplied
+            correlationId, createdAt, Instant.now(), debitApplied, note, failureReason
         );
     }
 
     public WalletTransaction withDebitApplied() {
         return new WalletTransaction(
             id, senderId, receiverId, amount, currency, status, idempotencyKey,
-            correlationId, createdAt, Instant.now(), true
+            correlationId, createdAt, Instant.now(), true, note, failureReason
+        );
+    }
+
+    public WalletTransaction withFailureReason(String failureReason) {
+        return new WalletTransaction(
+            id, senderId, receiverId, amount, currency, status, idempotencyKey,
+            correlationId, createdAt, Instant.now(), debitApplied, note, failureReason
         );
     }
 }

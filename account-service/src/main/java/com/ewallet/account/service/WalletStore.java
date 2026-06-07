@@ -78,8 +78,8 @@ public class WalletStore {
         UUID userId = UUID.randomUUID();
         jdbc.update(
             """
-                INSERT INTO users (id, email, phone, password_hash, pin_hash, roles, status, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO users (id, email, phone, password_hash, pin_hash, roles, status, created_at, failed_pin_attempts, pin_locked_until)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
             userId,
             "admin@local.test",
@@ -88,7 +88,9 @@ public class WalletStore {
             passwordEncoder.encode(seedAdminPin),
             "ROLE_ADMIN",
             AccountStatus.ACTIVE.name(),
-            Timestamp.from(Instant.now())
+            Timestamp.from(Instant.now()),
+            0,
+            null
         );
         warmBalanceCache();
     }
@@ -127,12 +129,14 @@ public class WalletStore {
             null,
             Set.of("ROLE_USER"),
             AccountStatus.ACTIVE,
-            now
+            now,
+            0,
+            null
         );
         jdbc.update(
             """
-                INSERT INTO users (id, email, phone, password_hash, pin_hash, roles, status, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO users (id, email, phone, password_hash, pin_hash, roles, status, created_at, failed_pin_attempts, pin_locked_until)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
             user.id(),
             user.email(),
@@ -141,7 +145,9 @@ public class WalletStore {
             user.pinHash(),
             rolesToString(user.roles()),
             user.status().name(),
-            Timestamp.from(user.createdAt())
+            Timestamp.from(user.createdAt()),
+            user.failedPinAttempts(),
+            user.pinLockedUntil() != null ? Timestamp.from(user.pinLockedUntil()) : null
         );
         createAccount(userId, currency == null ? "VND" : currency);
         audit("USER", userId, "AccountCreated", "USER", userId, Map.of("email", safe(normalizedEmail)), null);
@@ -216,7 +222,7 @@ public class WalletStore {
             """
                 UPDATE users
                 SET email = ?, phone = ?, password_hash = ?, pin_hash = ?, refresh_token_hash = ?,
-                    roles = ?, status = ?
+                    roles = ?, status = ?, failed_pin_attempts = ?, pin_locked_until = ?
                 WHERE id = ?
                 """,
             user.email(),
@@ -226,6 +232,8 @@ public class WalletStore {
             user.refreshTokenHash(),
             rolesToString(user.roles()),
             user.status().name(),
+            user.failedPinAttempts(),
+            user.pinLockedUntil() != null ? Timestamp.from(user.pinLockedUntil()) : null,
             user.id()
         );
     }
@@ -436,20 +444,21 @@ public class WalletStore {
         int updated = jdbc.update(
             """
                 UPDATE transactions
-                SET status = ?, debit_applied = ?, updated_at = ?
+                SET status = ?, debit_applied = ?, updated_at = ?, failure_reason = ?
                 WHERE id = ?
                 """,
             transaction.status().name(),
             transaction.debitApplied(),
             Timestamp.from(transaction.updatedAt()),
+            transaction.failureReason(),
             transaction.id()
         );
         if (updated == 0) {
             jdbc.update(
                 """
                     INSERT INTO transactions
-                        (id, sender_id, receiver_id, amount, currency, status, idempotency_key, correlation_id, debit_applied, created_at, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        (id, sender_id, receiver_id, amount, currency, status, idempotency_key, correlation_id, debit_applied, created_at, updated_at, note, failure_reason)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                 transaction.id(),
                 transaction.senderId(),
@@ -461,7 +470,9 @@ public class WalletStore {
                 transaction.correlationId(),
                 transaction.debitApplied(),
                 Timestamp.from(transaction.createdAt()),
-                Timestamp.from(transaction.updatedAt())
+                Timestamp.from(transaction.updatedAt()),
+                transaction.note(),
+                transaction.failureReason()
             );
         }
         return transaction;
@@ -508,6 +519,27 @@ public class WalletStore {
             accountId,
             accountId
         );
+    }
+
+    public List<WalletTransaction> accountTransactionsPaginated(UUID accountId, int limit, int offset) {
+        return jdbc.query(
+            "SELECT * FROM transactions WHERE sender_id = ? OR receiver_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            transactionMapper(),
+            accountId,
+            accountId,
+            limit,
+            offset
+        );
+    }
+
+    public long countAccountTransactions(UUID accountId) {
+        Long count = jdbc.queryForObject(
+            "SELECT count(*) FROM transactions WHERE sender_id = ? OR receiver_id = ?",
+            Long.class,
+            accountId,
+            accountId
+        );
+        return count == null ? 0 : count;
     }
 
     public List<LedgerEntryRecord> ledger(UUID accountId) {
@@ -806,7 +838,9 @@ public class WalletStore {
             rs.getString("refresh_token_hash"),
             stringToRoles(rs.getString("roles")),
             AccountStatus.valueOf(rs.getString("status")),
-            instant(rs, "created_at")
+            instant(rs, "created_at"),
+            rs.getInt("failed_pin_attempts"),
+            rs.getTimestamp("pin_locked_until") != null ? rs.getTimestamp("pin_locked_until").toInstant() : null
         );
     }
 
@@ -848,7 +882,9 @@ public class WalletStore {
             nullableUuid(rs, "correlation_id"),
             instant(rs, "created_at"),
             instant(rs, "updated_at"),
-            rs.getBoolean("debit_applied")
+            rs.getBoolean("debit_applied"),
+            rs.getString("note"),
+            rs.getString("failure_reason")
         );
     }
 
