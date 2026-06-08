@@ -53,6 +53,14 @@ class GapsFlowTest {
     @Autowired
     JdbcTemplate jdbc;
 
+    @Autowired
+    com.ewallet.account.service.FaultInjection faultInjection;
+
+    @org.junit.jupiter.api.AfterEach
+    void cleanFaults() {
+        faultInjection.clear();
+    }
+
     @Test
     void testChangePinAndRateLimitingLockout() throws Exception {
         Auth user = register("pinuser@example.test", "+84000000901", "123456");
@@ -165,6 +173,47 @@ class GapsFlowTest {
         JsonNode failedTxDetail = waitForTerminalStatus(failedTxId, sender.accessToken());
         assertThat(failedTxDetail.get("status").asText()).isEqualTo("FAILED");
         assertThat(failedTxDetail.get("failureReason").asText()).contains("INSUFFICIENT_FUNDS");
+    }
+
+    @Test
+    void testTransactionCompensationAndRefundFlag() throws Exception {
+        Auth sender = register("compensate-sender@example.test", "+84000000910", "123456");
+        Auth receiver = register("compensate-receiver@example.test", "+84000000911", "123456");
+        String admin = login("admin@local.test", "Admin123!").accessToken();
+
+        postJson("/api/accounts/" + sender.accountId() + "/deposit", admin, "{\"amount\":\"500\"}", null)
+            .andExpect(status().isOk());
+
+        // Enable credit step failure to trigger Saga compensation
+        faultInjection.enable(com.ewallet.account.service.FaultInjection.CREDIT_STEP);
+
+        // Initiate transfer
+        String idempotencyKey = UUID.randomUUID().toString();
+        JsonNode transfer = postJson(
+            "/api/transactions/transfer",
+            sender.accessToken(),
+            "{\"recipientEmail\":\"compensate-receiver@example.test\",\"amount\":\"100\",\"idempotencyKey\":\"" 
+            + idempotencyKey + "\",\"pin\":\"123456\",\"note\":\"Compensation test\"}",
+            null
+        ).andExpect(status().isOk()).andReturnJson();
+
+        String txId = transfer.get("id").asText();
+        JsonNode txDetail = waitForTerminalStatus(txId, sender.accessToken());
+
+        assertThat(txDetail.get("status").asText()).isEqualTo("FAILED");
+        assertThat(txDetail.get("debitApplied").asBoolean()).isTrue();
+        assertThat(txDetail.get("compensated").asBoolean()).isTrue();
+        assertThat(txDetail.get("failureReason").asText()).contains("Credit failed, transaction compensated");
+
+        // Verify balance was refunded (still 500 on sender, 0 on receiver)
+        assertThat(getJson("/api/accounts/" + sender.accountId() + "/balance", sender.accessToken()).get("balance").asText()).isEqualTo("500");
+        assertThat(getJson("/api/accounts/" + receiver.accountId() + "/balance", receiver.accessToken()).get("balance").asText()).isEqualTo("0");
+
+        // Verify that history items also return the compensated flag
+        JsonNode rawHistory = getJson("/api/accounts/" + sender.accountId() + "/history", sender.accessToken());
+        assertThat(rawHistory.isArray()).isTrue();
+        JsonNode histTx = rawHistory.get(0);
+        assertThat(histTx.get("compensated").asBoolean()).isTrue();
     }
 
     @Test

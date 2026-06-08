@@ -40,4 +40,9 @@ public record WalletTransaction(
             correlationId, createdAt, Instant.now(), debitApplied, note, failureReason
         );
     }
+
+    @com.fasterxml.jackson.annotation.JsonProperty("compensated")
+    public boolean isCompensated() {
+        return (status == com.ewallet.common.TransactionStatus.FAILED || status == com.ewallet.common.TransactionStatus.COMPENSATING) && debitApplied;
+    }
 }
