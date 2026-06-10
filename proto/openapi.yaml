@@ -154,6 +154,12 @@ paths:
       responses:
         "200":
           description: Admin audit list
+  /api/admin/metrics:
+    get:
+      operationId: adminMetrics
+      responses:
+        "200":
+          description: Admin dashboard metrics
   /api/admin/dlq:
     get:
       operationId: adminInspectDlq

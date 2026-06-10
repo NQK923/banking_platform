@@ -4,6 +4,7 @@ import com.ewallet.account.model.AccountRecord;
 import com.ewallet.account.model.AuditLogRecord;
 import com.ewallet.account.model.WalletTransaction;
 import com.ewallet.account.security.AuthenticatedUser;
+import com.ewallet.account.service.AdminMetricsUseCases;
 import com.ewallet.account.service.AdminUseCases;
 import com.ewallet.account.service.AdminUseCases.MaintenanceResult;
 import java.util.List;
@@ -19,9 +20,11 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/admin")
 public class AdminController {
     private final AdminUseCases adminUseCases;
+    private final AdminMetricsUseCases adminMetricsUseCases;
 
-    public AdminController(AdminUseCases adminUseCases) {
+    public AdminController(AdminUseCases adminUseCases, AdminMetricsUseCases adminMetricsUseCases) {
         this.adminUseCases = adminUseCases;
+        this.adminMetricsUseCases = adminMetricsUseCases;
     }
 
     @GetMapping("/accounts")
@@ -42,6 +45,11 @@ public class AdminController {
     @GetMapping("/audit")
     List<AuditLogRecord> audit(@AuthenticationPrincipal AuthenticatedUser user) {
         return adminUseCases.auditLogs(user == null ? null : user.userId());
+    }
+
+    @GetMapping("/metrics")
+    AdminMetricsUseCases.SystemMetrics metrics() {
+        return adminMetricsUseCases.metrics();
     }
 
     @PostMapping("/snapshots/write")
