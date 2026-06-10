@@ -41,7 +41,7 @@ Or run the combined verifier:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\verify-local.ps1
 ```
 
-The verifier resets the local Compose project data by default so Postgres credentials and Flyway state are reproducible, runs the full stack in Compose, executes smoke through the Gateway, then stops the stack. Pass `-KeepData` to reuse existing local data and `-KeepRunning` to leave the stack running.
+The verifier resets the local Compose project data by default so Postgres credentials and Flyway state are reproducible, runs the full stack in Compose, checks service health with the internal service token, executes smoke through the Gateway, then stops the stack. Pass `-KeepData` to reuse existing local data and `-KeepRunning` to leave the stack running.
 
 The smoke script covers register/login, mock deposit, balance, transfer by email, insufficient funds, credit-fail compensation, admin suspend/audit, and reconciliation zero drift.
 

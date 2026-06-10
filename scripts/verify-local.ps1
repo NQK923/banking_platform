@@ -33,12 +33,15 @@ try {
         $env:BANKING_SEED_ADMIN_PIN = (Get-Random -Minimum 100000 -Maximum 999999).ToString()
     }
 
-    if (-not $SkipBuild) {
-        & .\gradlew.bat clean build
-    }
-
     if (-not $KeepData) {
         docker compose down -v --remove-orphans
+    }
+
+    if (-not $SkipBuild) {
+        & .\gradlew.bat clean build
+        if ($LASTEXITCODE -ne 0) {
+            throw "Gradle build failed with exit code $LASTEXITCODE"
+        }
     }
 
     docker compose up -d
@@ -47,7 +50,11 @@ try {
         $Healthy = $false
         for ($i = 0; $i -lt 120; $i++) {
             try {
-                $Response = Invoke-RestMethod -Uri $Check.Url -TimeoutSec 2
+                $Headers = @{}
+                if ($env:INTERNAL_SERVICE_TOKEN) {
+                    $Headers["X-Service-Token"] = $env:INTERNAL_SERVICE_TOKEN
+                }
+                $Response = Invoke-RestMethod -Uri $Check.Url -Headers $Headers -TimeoutSec 2
                 if ($Response.status -eq "UP") {
                     $Healthy = $true
                     break
