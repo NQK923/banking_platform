@@ -153,13 +153,13 @@ class GapsFlowTest {
             "/api/transactions/transfer",
             sender.accessToken(),
             "{\"recipientEmail\":\"notereceiver@example.test\",\"amount\":\"100\",\"idempotencyKey\":\"" 
-            + idempotencyKey + "\",\"pin\":\"123456\",\"note\":\"Trả tiền nước\"}",
+            + idempotencyKey + "\",\"pin\":\"123456\",\"note\":\"Water bill payment\"}",
             null
         ).andExpect(status().isOk()).andReturnJson();
 
         String txId = transfer.get("id").asText();
         JsonNode txDetail = getJson("/api/transactions/" + txId, sender.accessToken());
-        assertThat(txDetail.get("note").asText()).isEqualTo("Trả tiền nước");
+        assertThat(txDetail.get("note").asText()).isEqualTo("Water bill payment");
 
         // Forced failure transfer to check failureReason
         JsonNode failedTransfer = postJson(

@@ -180,7 +180,7 @@ public class TransferUseCases {
         Money amount = new Money(tx.amount(), tx.currency());
         if (!tx.debitApplied()) {
             try {
-                tx = tx.withDebitApplied();
+                WalletTransaction debited = tx.withDebitApplied();
                 store.applyBalancedJournalSaveTransactionAndAudit(
                     tx.id(),
                     amount,
@@ -188,7 +188,7 @@ public class TransferUseCases {
                     amount,
                     store.systemSuspenseAccountId(),
                     "transfer debit",
-                    tx,
+                    debited,
                     "TRANSACTION",
                     tx.id(),
                     "MoneyDebited",
@@ -197,6 +197,7 @@ public class TransferUseCases {
                     Map.of("amount", amount.asString()),
                     tx.correlationId()
                 );
+                tx = debited;
             } catch (DomainException ex) {
                 String reason = ex.code() + ": " + ex.getMessage();
                 WalletTransaction failed = tx.withStatus(TransactionStatus.FAILED).withFailureReason(reason);

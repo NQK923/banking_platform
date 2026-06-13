@@ -207,8 +207,9 @@ class SupportChatFlowTest {
             .contains("I cannot confirm the status")
             .contains("contact human support");
         assertThat(jdbc.queryForObject(
-            "SELECT success FROM support_ai_tool_calls WHERE tool_name = 'getTransaction'",
-            Boolean.class
+            "SELECT success FROM support_ai_tool_calls WHERE session_id = ? AND tool_name = 'getTransaction'",
+            Boolean.class,
+            UUID.fromString(support.get("sessionId").asText())
         )).isFalse();
     }
 
