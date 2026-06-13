@@ -1,6 +1,7 @@
 package com.ewallet.account.service;
 
 import com.ewallet.account.model.AccountRecord;
+import com.ewallet.account.model.AdminAccountView;
 import com.ewallet.account.model.AuditLogRecord;
 import com.ewallet.account.model.LedgerEntryRecord;
 import com.ewallet.account.model.OutboxRecord;
@@ -753,10 +754,42 @@ public class WalletStore {
         return jdbc.query("SELECT * FROM accounts ORDER BY created_at", accountMapper());
     }
 
+    public List<AdminAccountView> adminAccounts() {
+        return jdbc.query(
+            """
+                SELECT a.id, a.user_id, u.email, u.phone, a.code, a.currency, a.account_kind,
+                       a.status, COALESCE(b.balance, 0) AS balance, a.created_at
+                FROM accounts a
+                LEFT JOIN users u ON u.id = a.user_id
+                LEFT JOIN account_balances b ON b.account_id = a.id
+                ORDER BY a.created_at
+                """,
+            adminAccountViewMapper()
+        );
+    }
+
+    public AdminAccountView adminAccount(UUID id) {
+        return queryOne(
+            """
+                SELECT a.id, a.user_id, u.email, u.phone, a.code, a.currency, a.account_kind,
+                       a.status, COALESCE(b.balance, 0) AS balance, a.created_at
+                FROM accounts a
+                LEFT JOIN users u ON u.id = a.user_id
+                LEFT JOIN account_balances b ON b.account_id = a.id
+                WHERE a.id = ?
+                """,
+            adminAccountViewMapper(),
+            id
+        ).orElseThrow(() -> new DomainException("ACCOUNT_NOT_FOUND", "Account not found"));
+    }
 
     @Transactional
     public synchronized AccountRecord suspendAccount(UUID id, UUID actorId) {
-        AccountRecord account = account(id).withStatus(AccountStatus.SUSPENDED);
+        AccountRecord current = account(id);
+        if (current.kind() != AccountKind.USER) {
+            throw new DomainException("SYSTEM_ACCOUNT_IMMUTABLE", "System accounts cannot be suspended");
+        }
+        AccountRecord account = current.withStatus(AccountStatus.SUSPENDED);
         jdbc.update("UPDATE accounts SET status = ? WHERE id = ?", account.status().name(), id);
         if (account.userId() != null) {
             jdbc.update("UPDATE users SET status = ? WHERE id = ?", AccountStatus.SUSPENDED.name(), account.userId());
@@ -1053,6 +1086,21 @@ public class WalletStore {
             AccountKind.valueOf(rs.getString("account_kind")),
             AccountStatus.valueOf(rs.getString("status")),
             rs.getLong("version"),
+            instant(rs, "created_at")
+        );
+    }
+
+    private RowMapper<AdminAccountView> adminAccountViewMapper() {
+        return (rs, rowNum) -> new AdminAccountView(
+            uuid(rs, "id"),
+            nullableUuid(rs, "user_id"),
+            rs.getString("email"),
+            rs.getString("phone"),
+            rs.getString("code"),
+            rs.getString("currency"),
+            AccountKind.valueOf(rs.getString("account_kind")),
+            AccountStatus.valueOf(rs.getString("status")),
+            rs.getBigDecimal("balance").toPlainString(),
             instant(rs, "created_at")
         );
     }

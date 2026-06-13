@@ -1,12 +1,14 @@
 package com.ewallet.account.web;
 
 import com.ewallet.account.model.AccountRecord;
+import com.ewallet.account.model.AdminAccountView;
 import com.ewallet.account.model.AuditLogRecord;
 import com.ewallet.account.model.WalletTransaction;
 import com.ewallet.account.security.AuthenticatedUser;
 import com.ewallet.account.service.AdminMetricsUseCases;
 import com.ewallet.account.service.AdminUseCases;
 import com.ewallet.account.service.AdminUseCases.MaintenanceResult;
+import com.ewallet.account.service.AdminUseCases.PageResponse;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -14,6 +16,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -28,13 +31,29 @@ public class AdminController {
     }
 
     @GetMapping("/accounts")
-    List<AccountRecord> accounts(@AuthenticationPrincipal AuthenticatedUser user) {
-        return adminUseCases.accounts(user == null ? null : user.userId());
+    PageResponse<AdminAccountView> accounts(
+        @AuthenticationPrincipal AuthenticatedUser user,
+        @RequestParam(defaultValue = "0") int page,
+        @RequestParam(defaultValue = "10") int size,
+        @RequestParam(required = false) String q
+    ) {
+        return adminUseCases.accounts(user == null ? null : user.userId(), page, size, q);
+    }
+
+    @GetMapping("/accounts/{id}")
+    AdminAccountView account(@PathVariable UUID id, @AuthenticationPrincipal AuthenticatedUser user) {
+        return adminUseCases.account(id, user == null ? null : user.userId());
     }
 
     @GetMapping("/transactions")
-    List<WalletTransaction> transactions(@AuthenticationPrincipal AuthenticatedUser user) {
-        return adminUseCases.transactions(user == null ? null : user.userId());
+    PageResponse<WalletTransaction> transactions(
+        @AuthenticationPrincipal AuthenticatedUser user,
+        @RequestParam(defaultValue = "0") int page,
+        @RequestParam(defaultValue = "10") int size,
+        @RequestParam(required = false) String status,
+        @RequestParam(required = false) String accountId
+    ) {
+        return adminUseCases.transactions(user == null ? null : user.userId(), page, size, status, accountId);
     }
 
     @PostMapping("/accounts/{id}/suspend")
@@ -43,8 +62,12 @@ public class AdminController {
     }
 
     @GetMapping("/audit")
-    List<AuditLogRecord> audit(@AuthenticationPrincipal AuthenticatedUser user) {
-        return adminUseCases.auditLogs(user == null ? null : user.userId());
+    PageResponse<AuditLogRecord> audit(
+        @AuthenticationPrincipal AuthenticatedUser user,
+        @RequestParam(defaultValue = "0") int page,
+        @RequestParam(defaultValue = "15") int size
+    ) {
+        return adminUseCases.auditLogs(user == null ? null : user.userId(), page, size);
     }
 
     @GetMapping("/metrics")
