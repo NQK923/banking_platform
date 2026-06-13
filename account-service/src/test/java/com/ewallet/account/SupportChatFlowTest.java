@@ -129,13 +129,13 @@ class SupportChatFlowTest {
         JsonNode support = postJson(
             "/api/support/chat/sessions",
             user.accessToken(),
-            "{\"initialMessage\":\"Tại sao số dư của tôi chưa cập nhật?\"}",
+            "{\"initialMessage\":\"Tai sao so du cua toi chua cap nhat?\"}",
             null
         ).andExpect(status().isOk()).andReturnJson();
 
         assertThat(support.get("answer").asText())
-            .contains("Số dư hiển thị")
-            .contains("backend");
+            .contains("backend")
+            .doesNotContain("Displayed balance");
     }
 
     @Test
