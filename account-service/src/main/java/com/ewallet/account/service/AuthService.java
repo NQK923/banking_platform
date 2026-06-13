@@ -51,7 +51,7 @@ public class AuthService {
         return issueTokens(user, account);
     }
 
-    @Transactional
+    @Transactional(noRollbackFor = DomainException.class)
     public void verifyPin(UUID userId, String pin) {
         UserRecord user = store.findUser(userId)
             .orElseThrow(() -> new DomainException("AUTH_INVALID", "Unknown user"));
@@ -83,7 +83,7 @@ public class AuthService {
         }
     }
 
-    @Transactional
+    @Transactional(noRollbackFor = DomainException.class)
     public void changePin(UUID userId, String currentPin, String newPin) {
         UserRecord user = store.findUser(userId)
             .orElseThrow(() -> new DomainException("AUTH_INVALID", "Unknown user"));
