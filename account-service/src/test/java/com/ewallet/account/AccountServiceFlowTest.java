@@ -52,6 +52,7 @@ class AccountServiceFlowTest {
         registry.add("banking.jwt-secret", () -> "test-secret-test-secret-test-secret");
         registry.add("banking.seed-admin-password", () -> "Admin123!");
         registry.add("banking.seed-admin-pin", () -> "000000");
+        registry.add("banking.grpc.port", () -> "0");
     }
 
     @Autowired
@@ -72,6 +73,21 @@ class AccountServiceFlowTest {
     @AfterEach
     void clearFaultInjection() {
         faultInjection.clear();
+        restoreBalanceProjection();
+    }
+
+    private void restoreBalanceProjection() {
+        jdbc.update(
+            """
+                UPDATE account_balances b
+                SET balance = COALESCE((
+                    SELECT SUM(l.amount)
+                    FROM ledger_entries l
+                    WHERE l.account_id = b.account_id
+                ), 0),
+                    updated_at = now()
+                """
+        );
     }
 
     @Test

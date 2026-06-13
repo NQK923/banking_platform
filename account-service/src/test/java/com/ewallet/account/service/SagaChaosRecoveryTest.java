@@ -50,6 +50,7 @@ class SagaChaosRecoveryTest {
         registry.add("banking.jwt-secret", () -> "test-secret-test-secret-test-secret");
         registry.add("banking.seed-admin-password", () -> "Admin123!");
         registry.add("banking.seed-admin-pin", () -> "000000");
+        registry.add("banking.grpc.port", () -> "0");
     }
 
     @Autowired
