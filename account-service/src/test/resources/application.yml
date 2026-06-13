@@ -1,4 +1,10 @@
 banking:
+  balance-cache:
+    redis:
+      enabled: false
   outbox:
     publisher:
+      enabled: false
+  reconciliation:
+    scheduler:
       enabled: false

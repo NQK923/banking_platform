@@ -1,9 +1,11 @@
 package com.ewallet.account.service;
 
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 @Component
+@ConditionalOnProperty(name = "banking.reconciliation.scheduler.enabled", havingValue = "true", matchIfMissing = true)
 class ScheduledReconciliationRunner {
     private final ReconciliationUseCases reconciliationUseCases;
 
