@@ -1,0 +1,4 @@
+banking:
+  outbox:
+    publisher:
+      enabled: false

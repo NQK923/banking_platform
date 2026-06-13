@@ -4,11 +4,13 @@ import com.ewallet.account.model.OutboxRecord;
 import java.util.concurrent.TimeUnit;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 @Component
+@ConditionalOnProperty(name = "banking.outbox.publisher.enabled", havingValue = "true", matchIfMissing = true)
 public class OutboxPublisher {
     private final WalletStore store;
     private final KafkaTemplate<String, String> kafkaTemplate;
