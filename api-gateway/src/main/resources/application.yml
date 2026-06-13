@@ -26,7 +26,7 @@ spring:
         - id: account-service
           uri: ${ACCOUNT_SERVICE_URL:http://localhost:8081}
           predicates:
-            - Path=/api/auth/**,/api/accounts/**,/api/admin/**
+            - Path=/api/auth/**,/api/accounts/**,/api/admin/**,/api/support/**
         - id: transaction-service
           uri: ${TRANSACTION_SERVICE_URL:http://localhost:8082}
           predicates:

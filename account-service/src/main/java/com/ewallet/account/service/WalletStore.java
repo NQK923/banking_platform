@@ -7,6 +7,9 @@ import com.ewallet.account.model.LedgerEntryRecord;
 import com.ewallet.account.model.OutboxRecord;
 import com.ewallet.account.model.UserRecord;
 import com.ewallet.account.model.WalletTransaction;
+import com.ewallet.account.model.SupportCaseHandoff;
+import com.ewallet.account.model.SupportChatMessage;
+import com.ewallet.account.model.SupportChatSession;
 import com.ewallet.account.risk.RecommendedAction;
 import com.ewallet.account.risk.RiskEvaluationRecord;
 import com.ewallet.account.risk.RiskFeatures;
@@ -712,6 +715,258 @@ public class WalletStore {
         return jdbc.query("SELECT * FROM transactions ORDER BY created_at DESC", transactionMapper());
     }
 
+    @Transactional
+    public synchronized SupportChatSession createSupportSession(SupportChatSession session) {
+        jdbc.update(
+            """
+                INSERT INTO support_chat_sessions
+                    (id, user_id, status, topic, related_transaction_id, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+            session.id(),
+            session.userId(),
+            session.status(),
+            session.topic(),
+            session.relatedTransactionId(),
+            Timestamp.from(session.createdAt()),
+            Timestamp.from(session.updatedAt())
+        );
+        audit(
+            "SUPPORT_CHAT_SESSION",
+            session.id(),
+            "SupportChatSessionCreated",
+            "USER",
+            session.userId(),
+            Map.of("topic", safe(session.topic()), "relatedTransactionId", safeUuid(session.relatedTransactionId())),
+            session.id()
+        );
+        return session;
+    }
+
+    @Transactional
+    public synchronized SupportChatSession updateSupportSession(SupportChatSession session) {
+        jdbc.update(
+            """
+                UPDATE support_chat_sessions
+                SET status = ?, topic = ?, related_transaction_id = ?, updated_at = ?
+                WHERE id = ?
+                """,
+            session.status(),
+            session.topic(),
+            session.relatedTransactionId(),
+            Timestamp.from(session.updatedAt()),
+            session.id()
+        );
+        return session;
+    }
+
+    @Transactional
+    public synchronized SupportChatMessage saveSupportMessage(SupportChatMessage message, String actorType, UUID actorId) {
+        jdbc.update(
+            """
+                INSERT INTO support_chat_messages (id, session_id, sender_type, message, metadata, created_at)
+                VALUES (?, ?, ?, ?, ?::jsonb, ?)
+                """,
+            message.id(),
+            message.sessionId(),
+            message.senderType(),
+            message.message(),
+            toJson(message.metadata() == null ? Map.of() : message.metadata()),
+            Timestamp.from(message.createdAt())
+        );
+        jdbc.update("UPDATE support_chat_sessions SET updated_at = ? WHERE id = ?", Timestamp.from(message.createdAt()), message.sessionId());
+        audit(
+            "SUPPORT_CHAT_SESSION",
+            message.sessionId(),
+            "SupportChatMessageCreated",
+            actorType,
+            actorId,
+            Map.of("messageId", message.id().toString(), "senderType", message.senderType()),
+            message.id()
+        );
+        return message;
+    }
+
+    public SupportChatSession supportSession(UUID sessionId) {
+        return queryOne("SELECT * FROM support_chat_sessions WHERE id = ?", supportChatSessionMapper(), sessionId)
+            .orElseThrow(() -> new DomainException("SUPPORT_SESSION_NOT_FOUND", "Support chat session not found"));
+    }
+
+    public List<SupportChatSession> supportSessionsForUser(UUID userId) {
+        return jdbc.query(
+            "SELECT * FROM support_chat_sessions WHERE user_id = ? ORDER BY updated_at DESC",
+            supportChatSessionMapper(),
+            userId
+        );
+    }
+
+    public List<SupportChatMessage> supportMessages(UUID sessionId) {
+        return jdbc.query(
+            "SELECT * FROM support_chat_messages WHERE session_id = ? ORDER BY created_at",
+            supportChatMessageMapper(),
+            sessionId
+        );
+    }
+
+    @Transactional
+    public synchronized void recordSupportToolCall(
+        UUID sessionId,
+        UUID messageId,
+        String toolName,
+        Map<String, String> requestMetadata,
+        Map<String, String> responseMetadata,
+        boolean success,
+        String errorCode,
+        UUID traceId
+    ) {
+        jdbc.update(
+            """
+                INSERT INTO support_ai_tool_calls
+                    (id, session_id, message_id, tool_name, request_metadata, response_metadata,
+                     success, error_code, trace_id, created_at)
+                VALUES (?, ?, ?, ?, ?::jsonb, ?::jsonb, ?, ?, ?, ?)
+                """,
+            UUID.randomUUID(),
+            sessionId,
+            messageId,
+            toolName,
+            toJson(requestMetadata),
+            toJson(responseMetadata),
+            success,
+            errorCode,
+            traceId,
+            Timestamp.from(Instant.now())
+        );
+        audit(
+            "SUPPORT_CHAT_SESSION",
+            sessionId,
+            "SupportChatToolCallExecuted",
+            "SYSTEM",
+            null,
+            Map.of("toolName", toolName, "success", String.valueOf(success), "errorCode", safe(errorCode)),
+            traceId
+        );
+    }
+
+    @Transactional
+    public synchronized SupportCaseHandoff createSupportCase(SupportCaseHandoff handoff, UUID userId, UUID relatedTransactionId) {
+        jdbc.update(
+            """
+                INSERT INTO support_case_handoffs
+                    (id, session_id, assigned_admin_id, reason, summary, status, created_at, updated_at, resolved_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+            handoff.id(),
+            handoff.sessionId(),
+            handoff.assignedAdminId(),
+            handoff.reason(),
+            handoff.summary(),
+            handoff.status(),
+            Timestamp.from(handoff.createdAt()),
+            Timestamp.from(handoff.updatedAt()),
+            handoff.resolvedAt() == null ? null : Timestamp.from(handoff.resolvedAt())
+        );
+        SupportChatSession session = supportSession(handoff.sessionId());
+        updateSupportSession(new SupportChatSession(
+            session.id(),
+            session.userId(),
+            "HANDED_OFF",
+            session.topic(),
+            session.relatedTransactionId(),
+            session.createdAt(),
+            Instant.now()
+        ));
+        audit(
+            "SUPPORT_CHAT_SESSION",
+            handoff.sessionId(),
+            "SupportChatHumanHandoffRequested",
+            "USER",
+            userId,
+            Map.of("reason", handoff.reason(), "caseId", handoff.id().toString(), "relatedTransactionId", safeUuid(relatedTransactionId)),
+            handoff.id()
+        );
+        return handoff;
+    }
+
+    public Optional<SupportCaseHandoff> findSupportCaseBySession(UUID sessionId) {
+        return queryOne(
+            "SELECT * FROM support_case_handoffs WHERE session_id = ? ORDER BY created_at DESC LIMIT 1",
+            supportCaseHandoffMapper(),
+            sessionId
+        );
+    }
+
+    public List<SupportCaseHandoff> supportCases() {
+        return jdbc.query("SELECT * FROM support_case_handoffs ORDER BY created_at DESC", supportCaseHandoffMapper());
+    }
+
+    public SupportCaseHandoff supportCase(UUID caseId) {
+        return queryOne("SELECT * FROM support_case_handoffs WHERE id = ?", supportCaseHandoffMapper(), caseId)
+            .orElseThrow(() -> new DomainException("SUPPORT_CASE_NOT_FOUND", "Support case not found"));
+    }
+
+    @Transactional
+    public synchronized SupportCaseHandoff markSupportCaseInProgress(UUID caseId, UUID adminId) {
+        Instant now = Instant.now();
+        jdbc.update(
+            """
+                UPDATE support_case_handoffs
+                SET status = 'IN_PROGRESS', assigned_admin_id = COALESCE(assigned_admin_id, ?), updated_at = ?
+                WHERE id = ?
+                """,
+            adminId,
+            Timestamp.from(now),
+            caseId
+        );
+        SupportCaseHandoff updated = supportCase(caseId);
+        audit(
+            "SUPPORT_CASE",
+            caseId,
+            "SupportCaseAdminReplied",
+            "ADMIN",
+            adminId,
+            Map.of("sessionId", updated.sessionId().toString()),
+            caseId
+        );
+        return updated;
+    }
+
+    @Transactional
+    public synchronized SupportCaseHandoff closeSupportCase(UUID caseId, String resolution, UUID adminId) {
+        Instant now = Instant.now();
+        jdbc.update(
+            """
+                UPDATE support_case_handoffs
+                SET status = 'CLOSED', updated_at = ?, resolved_at = ?
+                WHERE id = ?
+                """,
+            Timestamp.from(now),
+            Timestamp.from(now),
+            caseId
+        );
+        SupportCaseHandoff closed = supportCase(caseId);
+        SupportChatSession session = supportSession(closed.sessionId());
+        updateSupportSession(new SupportChatSession(
+            session.id(),
+            session.userId(),
+            "CLOSED",
+            session.topic(),
+            session.relatedTransactionId(),
+            session.createdAt(),
+            now
+        ));
+        audit(
+            "SUPPORT_CASE",
+            caseId,
+            "SupportCaseClosed",
+            "ADMIN",
+            adminId,
+            Map.of("resolution", safe(resolution), "sessionId", closed.sessionId().toString()),
+            caseId
+        );
+        return closed;
+    }
+
     public List<WalletTransaction> accountTransactions(UUID accountId) {
         return jdbc.query(
             "SELECT * FROM transactions WHERE sender_id = ? OR receiver_id = ? ORDER BY created_at DESC",
@@ -1138,6 +1393,43 @@ public class WalletStore {
         );
     }
 
+    private RowMapper<SupportChatSession> supportChatSessionMapper() {
+        return (rs, rowNum) -> new SupportChatSession(
+            uuid(rs, "id"),
+            uuid(rs, "user_id"),
+            rs.getString("status"),
+            rs.getString("topic"),
+            nullableUuid(rs, "related_transaction_id"),
+            instant(rs, "created_at"),
+            instant(rs, "updated_at")
+        );
+    }
+
+    private RowMapper<SupportChatMessage> supportChatMessageMapper() {
+        return (rs, rowNum) -> new SupportChatMessage(
+            uuid(rs, "id"),
+            uuid(rs, "session_id"),
+            rs.getString("sender_type"),
+            rs.getString("message"),
+            readStringMap(rs.getString("metadata")),
+            instant(rs, "created_at")
+        );
+    }
+
+    private RowMapper<SupportCaseHandoff> supportCaseHandoffMapper() {
+        return (rs, rowNum) -> new SupportCaseHandoff(
+            uuid(rs, "id"),
+            uuid(rs, "session_id"),
+            nullableUuid(rs, "assigned_admin_id"),
+            rs.getString("reason"),
+            rs.getString("summary"),
+            rs.getString("status"),
+            instant(rs, "created_at"),
+            instant(rs, "updated_at"),
+            rs.getTimestamp("resolved_at") != null ? rs.getTimestamp("resolved_at").toInstant() : null
+        );
+    }
+
     private RowMapper<RiskEvaluationRecord> riskEvaluationMapper() {
         return (rs, rowNum) -> new RiskEvaluationRecord(
             uuid(rs, "id"),
@@ -1246,6 +1538,9 @@ public class WalletStore {
     }
 
     private Map<String, String> readStringMap(String value) {
+        if (value == null || value.isBlank()) {
+            return Map.of();
+        }
         try {
             return objectMapper.readValue(value, new TypeReference<Map<String, String>>() {});
         } catch (JsonProcessingException ex) {
@@ -1255,5 +1550,9 @@ public class WalletStore {
 
     private String safe(String value) {
         return value == null ? "" : value;
+    }
+
+    private String safeUuid(UUID value) {
+        return value == null ? "" : value.toString();
     }
 }
