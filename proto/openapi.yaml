@@ -44,6 +44,23 @@ paths:
       responses:
         "200":
           description: Account lookup result
+  /api/accounts/{id}:
+    get:
+      operationId: getAccountDetails
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Account details including registered owner contact information
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountDetails"
   /api/accounts/{id}/balance:
     get:
       operationId: getBalance
@@ -694,6 +711,38 @@ components:
           type: string
         balance:
           $ref: "#/components/schemas/MoneyString"
+        createdAt:
+          type: string
+          format: date-time
+    AccountDetails:
+      type: object
+      required: [id, code, currency, kind, status, version, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+          nullable: true
+        email:
+          type: string
+          nullable: true
+        phone:
+          type: string
+          nullable: true
+        code:
+          type: string
+        currency:
+          type: string
+        kind:
+          type: string
+          enum: [USER, SYSTEM]
+        status:
+          type: string
+        version:
+          type: integer
+          format: int64
         createdAt:
           type: string
           format: date-time

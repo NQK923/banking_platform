@@ -217,107 +217,141 @@ public class SupportChatUseCases {
     }
 
     private AssistantAnswer answer(String message, WalletTransaction tx, String topic, boolean lookupMissing) {
-        if (containsAny(message, "human", "operator", "support agent", "fraud", "scam", "account takeover")) {
+        boolean vietnamese = isVietnamese(message);
+        if (containsAny(message, "human", "operator", "support agent", "fraud", "scam", "account takeover",
+            "nhan vien", "nhân viên", "nguoi that", "người thật", "ho tro vien", "hỗ trợ viên", "lua dao", "lừa đảo")) {
             return new AssistantAnswer(
-                "I can hand this conversation to a support operator. Do not share your PIN, password, OTP, access token, or refresh token.",
+                vietnamese
+                    ? "Tôi có thể chuyển cuộc trò chuyện này cho nhân viên hỗ trợ. Không chia sẻ PIN, mật khẩu, OTP, access token hoặc refresh token trong chat."
+                    : "I can hand this conversation to a support operator. Do not share your PIN, password, OTP, access token, or refresh token.",
                 Map.of("requiresHandoff", "true"),
-                List.of(new SuggestedAction("CONTACT_HUMAN_SUPPORT", "Contact human support", null)),
+                List.of(new SuggestedAction("CONTACT_HUMAN_SUPPORT", vietnamese ? "Liên hệ nhân viên hỗ trợ" : "Contact human support", null)),
                 true
             );
         }
-        if (containsAny(message, "pin", "password", "otp", "token")) {
+        if (containsAny(message, "pin", "password", "otp", "token", "mat khau", "mật khẩu")) {
             return new AssistantAnswer(
-                "For account safety, do not share PIN, password, OTP, access tokens, or refresh tokens in chat. You can change your transaction PIN from security settings.",
+                vietnamese
+                    ? "Để bảo vệ tài khoản, không chia sẻ PIN, mật khẩu, OTP, access token hoặc refresh token trong chat. Bạn có thể đổi PIN giao dịch trong phần cài đặt bảo mật."
+                    : "For account safety, do not share PIN, password, OTP, access tokens, or refresh tokens in chat. You can change your transaction PIN from security settings.",
                 Map.of("safety", "secret_redirection"),
-                List.of(new SuggestedAction("OPEN_PIN_SETTINGS", "Open PIN settings", null)),
+                List.of(new SuggestedAction("OPEN_PIN_SETTINGS", vietnamese ? "Mở cài đặt PIN" : "Open PIN settings", null)),
                 true
             );
         }
         if (lookupMissing) {
             increment("support_chat_tool_call_failures_total");
             return new AssistantAnswer(
-                "I cannot confirm the status for that transaction from the current data. Please check the transaction ID or contact human support with your traceId if available. Do not share PIN, password, OTP, access token, or refresh token.",
+                vietnamese
+                    ? "Tôi không thể xác nhận trạng thái giao dịch đó từ dữ liệu hiện có. Vui lòng kiểm tra lại mã giao dịch hoặc liên hệ nhân viên hỗ trợ kèm traceId nếu có. Không chia sẻ PIN, mật khẩu, OTP, access token hoặc refresh token."
+                    : "I cannot confirm the status for that transaction from the current data. Please check the transaction ID or contact human support with your traceId if available. Do not share PIN, password, OTP, access token, or refresh token.",
                 Map.of("requiresHandoff", "true", "toolError", "TRANSACTION_NOT_FOUND"),
-                List.of(new SuggestedAction("CONTACT_HUMAN_SUPPORT", "Contact human support", null)),
+                List.of(new SuggestedAction("CONTACT_HUMAN_SUPPORT", vietnamese ? "Liên hệ nhân viên hỗ trợ" : "Contact human support", null)),
                 true
             );
         }
         if (tx == null) {
             increment("support_chat_unknown_intent_total");
-            return generalAnswer(topic);
+            return generalAnswer(topic, vietnamese);
         }
         List<SuggestedAction> txActions = new ArrayList<>();
-        txActions.add(new SuggestedAction("OPEN_TRANSACTION_DETAIL", "Open transaction detail", tx.id()));
-        txActions.add(new SuggestedAction("CONTACT_HUMAN_SUPPORT", "Contact human support", null));
+        txActions.add(new SuggestedAction("OPEN_TRANSACTION_DETAIL", vietnamese ? "Mở chi tiết giao dịch" : "Open transaction detail", tx.id()));
+        txActions.add(new SuggestedAction("CONTACT_HUMAN_SUPPORT", vietnamese ? "Liên hệ nhân viên hỗ trợ" : "Contact human support", null));
         String traceId = tx.correlationId() == null ? tx.id().toString() : tx.correlationId().toString();
-        String suffix = " When contacting support, include transaction ID, traceId, transaction time, amount, currency, and current status. Do not share PIN, password, OTP, access token, or refresh token.";
+        String suffix = vietnamese
+            ? " Khi liên hệ hỗ trợ, hãy cung cấp mã giao dịch, traceId, thời gian giao dịch, số tiền, tiền tệ và trạng thái hiện tại. Không chia sẻ PIN, mật khẩu, OTP, access token hoặc refresh token."
+            : " When contacting support, include transaction ID, traceId, transaction time, amount, currency, and current status. Do not share PIN, password, OTP, access token, or refresh token.";
         String text = switch (tx.status()) {
-            case PENDING -> "Your transfer is currently pending. The system has received your request and is still processing it. Do not submit the same transfer again while it is pending.";
-            case COMPLETED -> "Your transfer was completed successfully. The recipient should now see the credited amount, subject to normal display refresh timing.";
-            case COMPENSATING -> "The transfer is being compensated. The debit succeeded, but the credit step failed, so the system is reversing the debit. Please check the transaction detail screen for the final result.";
-            case CANCELLED -> "This transfer was cancelled while it was still pending and before any money was debited.";
-            case FAILED -> failedAnswer(tx);
+            case PENDING -> vietnamese
+                ? "Giao dịch chuyển tiền của bạn đang chờ xử lý. Hệ thống đã nhận yêu cầu và vẫn đang xử lý. Không gửi lại cùng một giao dịch khi giao dịch còn đang pending."
+                : "Your transfer is currently pending. The system has received your request and is still processing it. Do not submit the same transfer again while it is pending.";
+            case COMPLETED -> vietnamese
+                ? "Giao dịch chuyển tiền đã hoàn tất thành công. Người nhận sẽ thấy số tiền được cộng sau khi màn hình số dư được làm mới."
+                : "Your transfer was completed successfully. The recipient should now see the credited amount, subject to normal display refresh timing.";
+            case COMPENSATING -> vietnamese
+                ? "Giao dịch đang được bồi hoàn. Bước trừ tiền đã thành công nhưng bước cộng tiền cho người nhận thất bại, nên hệ thống đang đảo ngược khoản trừ. Vui lòng kiểm tra chi tiết giao dịch để xem kết quả cuối cùng."
+                : "The transfer is being compensated. The debit succeeded, but the credit step failed, so the system is reversing the debit. Please check the transaction detail screen for the final result.";
+            case CANCELLED -> vietnamese
+                ? "Giao dịch này đã bị hủy khi vẫn còn chờ xử lý và trước khi tiền bị trừ."
+                : "This transfer was cancelled while it was still pending and before any money was debited.";
+            case FAILED -> failedAnswer(tx, vietnamese);
         };
         return new AssistantAnswer(text + " TraceId: " + traceId + "." + suffix, transactionMetadata(tx), txActions, false);
     }
 
-    private AssistantAnswer generalAnswer(String topic) {
+    private AssistantAnswer generalAnswer(String topic, boolean vietnamese) {
         String text = switch (topic) {
-            case "PIN_HELP" -> "You can change your transaction PIN from security settings. Never share your PIN, password, OTP, access token, or refresh token with anyone.";
-            case "BALANCE_DISPLAY" -> "Displayed balance can lag briefly while the app refreshes. The authoritative balance is calculated on the backend from ledger-derived account balances, not from the app cache.";
-            case "RECIPIENT_LOOKUP" -> "Recipient lookup can fail if the email or phone number is incorrect, the recipient is inactive, or the account is not eligible to receive transfers.";
-            case "APP_TECHNICAL_ISSUE" -> "Transfers require a live connection so the backend can authenticate the request, verify PIN, check balance, and create a server-side transaction.";
-            default -> "I can help explain transfer status, failed transfers, refunds, traceId, PIN safety, recipient lookup, and balance display. If your question is about a specific transaction, open the transaction detail and ask about it.";
+            case "PIN_HELP" -> vietnamese
+                ? "Bạn có thể đổi PIN giao dịch trong phần cài đặt bảo mật. Không chia sẻ PIN, mật khẩu, OTP, access token hoặc refresh token với bất kỳ ai."
+                : "You can change your transaction PIN from security settings. Never share your PIN, password, OTP, access token, or refresh token with anyone.";
+            case "BALANCE_DISPLAY" -> vietnamese
+                ? "Số dư hiển thị có thể chậm trong lúc ứng dụng làm mới. Số dư chính xác được tính ở backend từ ledger và bảng account balances, không dựa vào cache của ứng dụng."
+                : "Displayed balance can lag briefly while the app refreshes. The authoritative balance is calculated on the backend from ledger-derived account balances, not from the app cache.";
+            case "RECIPIENT_LOOKUP" -> vietnamese
+                ? "Tra cứu người nhận có thể thất bại nếu email hoặc số điện thoại không đúng, người nhận không hoạt động, hoặc tài khoản không đủ điều kiện nhận tiền."
+                : "Recipient lookup can fail if the email or phone number is incorrect, the recipient is inactive, or the account is not eligible to receive transfers.";
+            case "APP_TECHNICAL_ISSUE" -> vietnamese
+                ? "Chuyển tiền cần kết nối tới backend để xác thực yêu cầu, kiểm tra PIN, kiểm tra số dư và tạo giao dịch phía server."
+                : "Transfers require a live connection so the backend can authenticate the request, verify PIN, check balance, and create a server-side transaction.";
+            default -> vietnamese
+                ? "Tôi có thể giải thích trạng thái chuyển tiền, giao dịch thất bại, hoàn tiền, traceId, an toàn PIN, tra cứu người nhận và hiển thị số dư. Nếu câu hỏi liên quan một giao dịch cụ thể, hãy mở chi tiết giao dịch rồi hỏi tại đó."
+                : "I can help explain transfer status, failed transfers, refunds, traceId, PIN safety, recipient lookup, and balance display. If your question is about a specific transaction, open the transaction detail and ask about it.";
         };
         return new AssistantAnswer(
             text,
             Map.of("topic", topic),
-            List.of(new SuggestedAction("CONTACT_HUMAN_SUPPORT", "Contact human support", null)),
+            List.of(new SuggestedAction("CONTACT_HUMAN_SUPPORT", vietnamese ? "Liên hệ nhân viên hỗ trợ" : "Contact human support", null)),
             false
         );
     }
 
-    private String failedAnswer(WalletTransaction tx) {
+    private String failedAnswer(WalletTransaction tx, boolean vietnamese) {
         String reason = tx.failureReason() == null ? "UNKNOWN" : tx.failureReason();
         String normalized = reason.split(":", 2)[0].trim().toUpperCase(Locale.ROOT);
         if (tx.isCompensated()) {
-            return "This transfer failed after the initial debit step, but the transaction shows compensated = true, so the debit was reversed back to your wallet. Reason: " + explainFailure(normalized);
+            return vietnamese
+                ? "Giao dịch thất bại sau bước trừ tiền ban đầu, nhưng dữ liệu giao dịch cho thấy compensated = true, nên khoản trừ đã được hoàn lại vào ví của bạn. Lý do: " + explainFailure(normalized, true)
+                : "This transfer failed after the initial debit step, but the transaction shows compensated = true, so the debit was reversed back to your wallet. Reason: " + explainFailure(normalized, false);
         }
         if ("INSUFFICIENT_FUNDS".equals(normalized)) {
-            return "This transfer failed because the available balance was not sufficient at the server-side balance check. No refund is required because the money was not successfully debited.";
+            return vietnamese
+                ? "Giao dịch thất bại vì số dư khả dụng không đủ tại bước kiểm tra số dư phía server. Không cần hoàn tiền vì tiền chưa bị trừ thành công."
+                : "This transfer failed because the available balance was not sufficient at the server-side balance check. No refund is required because the money was not successfully debited.";
         }
-        return "This transfer failed. I cannot confirm a refund because the transaction does not show compensated = true. Reason: " + explainFailure(normalized);
+        return vietnamese
+            ? "Giao dịch này thất bại. Tôi không thể xác nhận đã hoàn tiền vì giao dịch không có compensated = true. Lý do: " + explainFailure(normalized, true)
+            : "This transfer failed. I cannot confirm a refund because the transaction does not show compensated = true. Reason: " + explainFailure(normalized, false);
     }
 
-    private String explainFailure(String reason) {
+    private String explainFailure(String reason, boolean vietnamese) {
         return switch (reason) {
-            case "INSUFFICIENT_FUNDS" -> "the sender did not have enough available balance.";
-            case "RECIPIENT_INACTIVE", "RECIPIENT_SUSPENDED" -> "the recipient account is not currently eligible to receive funds.";
-            case "DEBIT_FAILED" -> "the system could not debit the sender account.";
-            case "CREDIT_FAILED_COMPENSATED" -> "the receiver could not be credited, and compensation should be checked on the transaction detail.";
-            case "PIN_INVALID" -> "the transaction PIN was incorrect.";
-            case "TIMEOUT" -> "the transaction did not complete in the expected time window.";
-            default -> "the backend reported " + reason + ".";
+            case "INSUFFICIENT_FUNDS" -> vietnamese ? "người gửi không có đủ số dư khả dụng." : "the sender did not have enough available balance.";
+            case "RECIPIENT_INACTIVE", "RECIPIENT_SUSPENDED" -> vietnamese ? "tài khoản người nhận hiện không đủ điều kiện nhận tiền." : "the recipient account is not currently eligible to receive funds.";
+            case "DEBIT_FAILED" -> vietnamese ? "hệ thống không thể trừ tiền từ tài khoản người gửi." : "the system could not debit the sender account.";
+            case "CREDIT_FAILED_COMPENSATED" -> vietnamese ? "không thể cộng tiền cho người nhận và cần kiểm tra bồi hoàn trong chi tiết giao dịch." : "the receiver could not be credited, and compensation should be checked on the transaction detail.";
+            case "PIN_INVALID" -> vietnamese ? "PIN giao dịch không đúng." : "the transaction PIN was incorrect.";
+            case "TIMEOUT" -> vietnamese ? "giao dịch không hoàn tất trong thời gian dự kiến." : "the transaction did not complete in the expected time window.";
+            default -> vietnamese ? "backend trả về " + reason + "." : "the backend reported " + reason + ".";
         };
     }
 
     private String classify(String message, WalletTransaction tx) {
         String text = message == null ? "" : message.toLowerCase(Locale.ROOT);
-        if (containsAny(text, "human", "operator", "support agent")) return "HUMAN_SUPPORT";
-        if (containsAny(text, "fraud", "scam", "takeover")) return "FRAUD_OR_SCAM";
-        if (containsAny(text, "refund", "compensat", "money back")) return "TRANSFER_REFUND";
-        if (containsAny(text, "fail", "failed", "reason", "inactive")) return "TRANSFER_FAILED";
-        if (containsAny(text, "pin", "password", "otp", "token")) return "PIN_HELP";
-        if (containsAny(text, "recipient", "lookup", "email", "phone")) return "RECIPIENT_LOOKUP";
-        if (containsAny(text, "balance", "display", "cache", "updated")) return "BALANCE_DISPLAY";
-        if (containsAny(text, "offline", "connection", "network")) return "APP_TECHNICAL_ISSUE";
+        if (containsAny(text, "human", "operator", "support agent", "nhan vien", "nhân viên", "nguoi that", "người thật", "ho tro vien", "hỗ trợ viên")) return "HUMAN_SUPPORT";
+        if (containsAny(text, "fraud", "scam", "takeover", "lua dao", "lừa đảo", "chiem doat", "chiếm đoạt")) return "FRAUD_OR_SCAM";
+        if (containsAny(text, "refund", "compensat", "money back", "hoan tien", "hoàn tiền", "hoan lai", "hoàn lại", "boi hoan", "bồi hoàn", "tien ve", "tiền về")) return "TRANSFER_REFUND";
+        if (containsAny(text, "fail", "failed", "reason", "inactive", "that bai", "thất bại", "khong thanh cong", "không thành công", "ly do", "lý do")) return "TRANSFER_FAILED";
+        if (containsAny(text, "pin", "password", "otp", "token", "mat khau", "mật khẩu")) return "PIN_HELP";
+        if (containsAny(text, "recipient", "lookup", "email", "phone", "nguoi nhan", "người nhận", "tra cuu", "tra cứu", "so dien thoai", "số điện thoại", "sdt")) return "RECIPIENT_LOOKUP";
+        if (containsAny(text, "balance", "display", "cache", "updated", "so du", "số dư", "hien thi", "hiển thị", "cap nhat", "cập nhật")) return "BALANCE_DISPLAY";
+        if (containsAny(text, "offline", "connection", "network", "mat mang", "mất mạng", "ket noi", "kết nối")) return "APP_TECHNICAL_ISSUE";
         if (tx != null) return "TRANSFER_STATUS";
         return "GENERAL_FAQ";
     }
 
     private void validateAnswer(AssistantAnswer answer, WalletTransaction tx) {
         String text = answer.text().toLowerCase(Locale.ROOT);
-        if (text.contains("refunded") || text.contains("reversed back")) {
+        if (text.contains("refunded") || text.contains("reversed back") || text.contains("đã được hoàn lại") || text.contains("đã hoàn lại") || text.contains("đã được đảo ngược")) {
             if (tx == null || !tx.isCompensated()) {
                 throw new DomainException("SUPPORT_RESPONSE_POLICY_VIOLATION", "Refund response is not grounded by compensated transaction data");
             }
@@ -450,6 +484,18 @@ public class SupportChatUseCases {
             }
         }
         return false;
+    }
+
+    private boolean isVietnamese(String value) {
+        String text = value == null ? "" : value.toLowerCase(Locale.ROOT);
+        return containsAny(text,
+            "à", "á", "ả", "ã", "ạ", "ă", "ằ", "ắ", "ẳ", "ẵ", "ặ", "â", "ầ", "ấ", "ẩ", "ẫ", "ậ",
+            "đ", "è", "é", "ẻ", "ẽ", "ẹ", "ê", "ề", "ế", "ể", "ễ", "ệ",
+            "ì", "í", "ỉ", "ĩ", "ị", "ò", "ó", "ỏ", "õ", "ọ", "ô", "ồ", "ố", "ổ", "ỗ", "ộ",
+            "ơ", "ờ", "ớ", "ở", "ỡ", "ợ", "ù", "ú", "ủ", "ũ", "ụ", "ư", "ừ", "ứ", "ử", "ữ", "ự",
+            "ỳ", "ý", "ỷ", "ỹ", "ỵ", "hoan tien", "hoan lai", "boi hoan", "so du", "nguoi nhan",
+            "mat khau", "giao dich", "chuyen tien", "ket noi", "ho tro"
+        );
     }
 
     private String normalize(String value) {

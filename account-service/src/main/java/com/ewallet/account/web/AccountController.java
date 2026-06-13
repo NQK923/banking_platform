@@ -4,6 +4,7 @@ import com.ewallet.account.model.AccountRecord;
 import com.ewallet.account.model.LedgerEntryRecord;
 import com.ewallet.account.model.WalletTransaction;
 import com.ewallet.account.service.AccountUseCases;
+import com.ewallet.account.service.AccountUseCases.AccountDetailsResponse;
 import com.ewallet.account.service.AccountUseCases.BalanceResponse;
 import com.ewallet.account.service.AccountUseCases.MoneyRequest;
 import com.ewallet.account.service.AccountUseCases.MovementResponse;
@@ -40,8 +41,8 @@ public class AccountController {
     }
 
     @GetMapping("/{id}")
-    AccountRecord get(@PathVariable UUID id) {
-        return accountUseCases.account(id);
+    AccountDetailsResponse get(@PathVariable UUID id) {
+        return accountUseCases.accountDetails(id);
     }
 
     @GetMapping("/{id}/balance")

@@ -28,6 +28,25 @@ public class AccountUseCases {
         return store.account(id);
     }
 
+    public AccountDetailsResponse accountDetails(UUID id) {
+        AccountRecord account = store.account(id);
+        UserRecord user = account.userId() == null
+            ? null
+            : store.findUser(account.userId()).orElse(null);
+        return new AccountDetailsResponse(
+            account.id().toString(),
+            account.userId() == null ? null : account.userId().toString(),
+            user == null ? null : user.email(),
+            user == null ? null : user.phone(),
+            account.code(),
+            account.currency(),
+            account.kind().name(),
+            account.status().name(),
+            account.version(),
+            account.createdAt().toString()
+        );
+    }
+
     public BalanceResponse balance(UUID accountId) {
         AccountRecord account = store.account(accountId);
         return new BalanceResponse(accountId.toString(), new Money(store.balance(accountId), account.currency()).asString(), account.currency());
@@ -144,6 +163,20 @@ public class AccountUseCases {
     }
 
     public record BalanceResponse(String accountId, String balance, String currency) {
+    }
+
+    public record AccountDetailsResponse(
+        String id,
+        String userId,
+        String email,
+        String phone,
+        String code,
+        String currency,
+        String kind,
+        String status,
+        long version,
+        String createdAt
+    ) {
     }
 
     public record MovementResponse(String journalId, BalanceResponse balance) {

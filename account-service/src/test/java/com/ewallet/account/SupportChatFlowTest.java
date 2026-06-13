@@ -123,6 +123,22 @@ class SupportChatFlowTest {
     }
 
     @Test
+    void assistantAnswersVietnameseSupportQuestionsInVietnamese() throws Exception {
+        Auth user = register("support-vietnamese-user@example.test", "+84910000013");
+
+        JsonNode support = postJson(
+            "/api/support/chat/sessions",
+            user.accessToken(),
+            "{\"initialMessage\":\"Tại sao số dư của tôi chưa cập nhật?\"}",
+            null
+        ).andExpect(status().isOk()).andReturnJson();
+
+        assertThat(support.get("answer").asText())
+            .contains("Số dư hiển thị")
+            .contains("backend");
+    }
+
+    @Test
     void secretMessagesAreRedactedAndHumanHandoffCanBeClosedByAdmin() throws Exception {
         Auth user = register("support-secret-user@example.test", "+84910000021");
         String admin = login("admin@local.test", "Admin123!").accessToken();

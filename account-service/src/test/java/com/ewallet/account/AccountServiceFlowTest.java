@@ -104,6 +104,10 @@ class AccountServiceFlowTest {
         assertThat(adminAccounts.get("items").get(0).get("email").asText()).isEqualTo("alice@example.test");
         assertThat(adminAccounts.get("items").get(0).get("balance").asText()).isEqualTo("1000.0000");
 
+        JsonNode aliceAccount = getJson("/api/accounts/" + alice.accountId(), alice.accessToken());
+        assertThat(aliceAccount.get("email").asText()).isEqualTo("alice@example.test");
+        assertThat(aliceAccount.get("phone").asText()).isEqualTo("+84000000001");
+
         JsonNode balance = getJson("/api/accounts/" + alice.accountId() + "/balance", alice.accessToken());
         assertThat(balance.get("balance").asText()).isEqualTo("1000");
 
