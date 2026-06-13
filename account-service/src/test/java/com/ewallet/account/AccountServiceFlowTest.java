@@ -83,6 +83,11 @@ class AccountServiceFlowTest {
         postJson("/api/accounts/" + alice.accountId() + "/deposit", admin, "{\"amount\":\"1000\"}", null)
             .andExpect(status().isOk());
 
+        JsonNode adminAccounts = getJson("/api/admin/accounts?q=alice&page=0&size=10", admin);
+        assertThat(adminAccounts.get("totalElements").asInt()).isEqualTo(1);
+        assertThat(adminAccounts.get("items").get(0).get("email").asText()).isEqualTo("alice@example.test");
+        assertThat(adminAccounts.get("items").get(0).get("balance").asText()).isEqualTo("1000.0000");
+
         JsonNode balance = getJson("/api/accounts/" + alice.accountId() + "/balance", alice.accessToken());
         assertThat(balance.get("balance").asText()).isEqualTo("1000");
 
@@ -161,6 +166,122 @@ class AccountServiceFlowTest {
         assertThat(receiverLedger).hasSize(1);
         assertThat(getJson("/api/accounts/" + sender.accountId() + "/balance", sender.accessToken()).get("balance").asText()).isEqualTo("300");
         assertThat(getJson("/api/accounts/" + receiver.accountId() + "/balance", receiver.accessToken()).get("balance").asText()).isEqualTo("200");
+    }
+
+    @Test
+    void mediumRiskTransferRequiresWarningAcknowledgementBeforeDebit() throws Exception {
+        Auth sender = register("risk-medium-sender@example.test", "+84000000211");
+        Auth baselineReceiver = register("risk-medium-known@example.test", "+84000000212");
+        Auth newReceiver = register("risk-medium-new@example.test", "+84000000213");
+        String admin = login("admin@local.test", "Admin123!").accessToken();
+        postJson("/api/accounts/" + sender.accountId() + "/deposit", admin, "{\"amount\":\"500\"}", null)
+            .andExpect(status().isOk());
+
+        JsonNode baseline = postJson(
+            "/api/transactions/transfer",
+            sender.accessToken(),
+            "{\"recipientEmail\":\"risk-medium-known@example.test\",\"amount\":\"10\",\"idempotencyKey\":\"" + UUID.randomUUID() + "\",\"pin\":\"123456\"}",
+            UUID.randomUUID().toString()
+        ).andExpect(status().isOk()).andReturnJson();
+        assertThat(waitForStatus(baseline.get("id").asText(), sender.accessToken(), TransactionStatus.COMPLETED).get("status").asText())
+            .isEqualTo("COMPLETED");
+
+        String idempotencyKey = UUID.randomUUID().toString();
+        String body = "{\"recipientEmail\":\"risk-medium-new@example.test\",\"amount\":\"100\",\"idempotencyKey\":\""
+            + idempotencyKey + "\",\"pin\":\"123456\",\"note\":\"normal\"}";
+        JsonNode warning = postJson("/api/transactions/transfer", sender.accessToken(), body, idempotencyKey)
+            .andExpect(status().isOk()).andReturnJson();
+
+        assertThat(warning.get("result").asText()).isEqualTo("RISK_WARNING_REQUIRED");
+        assertThat(warning.get("recommendedAction").asText()).isEqualTo("WARN_USER");
+        assertThat(warning.get("riskScore").asInt()).isBetween(30, 59);
+        assertThat(jdbc.queryForObject(
+            "SELECT count(*) FROM ledger_entries WHERE account_id = ?",
+            Integer.class,
+            UUID.fromString(newReceiver.accountId())
+        )).isZero();
+        assertThat(jdbc.queryForObject(
+            "SELECT count(*) FROM transactions WHERE sender_id = ? AND idempotency_key = ?",
+            Integer.class,
+            UUID.fromString(sender.accountId()),
+            idempotencyKey
+        )).isZero();
+
+        String acknowledgedBody = "{\"recipientEmail\":\"risk-medium-new@example.test\",\"amount\":\"100\",\"idempotencyKey\":\""
+            + idempotencyKey + "\",\"pin\":\"123456\",\"note\":\"normal\",\"riskEvaluationId\":\""
+            + warning.get("riskEvaluationId").asText() + "\",\"riskAcknowledged\":true}";
+        JsonNode transfer = postJson("/api/transactions/transfer", sender.accessToken(), acknowledgedBody, idempotencyKey)
+            .andExpect(status().isOk()).andReturnJson();
+        assertThat(transfer.get("reviewStatus").asText()).isEqualTo("WARNING_ACKNOWLEDGED");
+        assertThat(waitForStatus(transfer.get("id").asText(), sender.accessToken(), TransactionStatus.COMPLETED).get("status").asText())
+            .isEqualTo("COMPLETED");
+        assertThat(getJson("/api/accounts/" + newReceiver.accountId() + "/balance", newReceiver.accessToken()).get("balance").asText())
+            .isEqualTo("100");
+    }
+
+    @Test
+    void criticalRiskTransferWaitsForManualApprovalAndDoesNotDebitBeforeApproval() throws Exception {
+        Auth sender = register("risk-critical-sender@example.test", "+84000000221");
+        Auth baselineReceiver = register("risk-critical-known@example.test", "+84000000222");
+        Auth targetReceiver = register("risk-critical-target@example.test", "+84000000223");
+        String admin = login("admin@local.test", "Admin123!").accessToken();
+        postJson("/api/accounts/" + sender.accountId() + "/deposit", admin, "{\"amount\":\"1000\"}", null)
+            .andExpect(status().isOk());
+
+        JsonNode baseline = postJson(
+            "/api/transactions/transfer",
+            sender.accessToken(),
+            "{\"recipientEmail\":\"risk-critical-known@example.test\",\"amount\":\"10\",\"idempotencyKey\":\"" + UUID.randomUUID() + "\",\"pin\":\"123456\"}",
+            UUID.randomUUID().toString()
+        ).andExpect(status().isOk()).andReturnJson();
+        assertThat(waitForStatus(baseline.get("id").asText(), sender.accessToken(), TransactionStatus.COMPLETED).get("status").asText())
+            .isEqualTo("COMPLETED");
+
+        for (int i = 0; i < 10; i++) {
+            Auth inboundSender = register("risk-inbound-" + i + "@example.test", "+8400000032" + i);
+            postJson("/api/accounts/" + inboundSender.accountId() + "/deposit", admin, "{\"amount\":\"10\"}", null)
+                .andExpect(status().isOk());
+            JsonNode inbound = postJson(
+                "/api/transactions/transfer",
+                inboundSender.accessToken(),
+                "{\"recipientEmail\":\"risk-critical-target@example.test\",\"amount\":\"1\",\"idempotencyKey\":\"" + UUID.randomUUID() + "\",\"pin\":\"123456\"}",
+                UUID.randomUUID().toString()
+            ).andExpect(status().isOk()).andReturnJson();
+            assertThat(waitForStatus(inbound.get("id").asText(), inboundSender.accessToken(), TransactionStatus.COMPLETED).get("status").asText())
+                .isEqualTo("COMPLETED");
+        }
+
+        String idempotencyKey = UUID.randomUUID().toString();
+        JsonNode review = postJson(
+            "/api/transactions/transfer",
+            sender.accessToken(),
+            "{\"recipientEmail\":\"risk-critical-target@example.test\",\"amount\":\"100\",\"idempotencyKey\":\""
+                + idempotencyKey + "\",\"pin\":\"123456\",\"note\":\"urgent investment\"}",
+            idempotencyKey
+        ).andExpect(status().isOk()).andReturnJson();
+
+        assertThat(review.get("result").asText()).isEqualTo("RISK_MANUAL_REVIEW_REQUIRED");
+        assertThat(review.get("recommendedAction").asText()).isEqualTo("MANUAL_REVIEW");
+        assertThat(review.get("riskScore").asInt()).isGreaterThanOrEqualTo(80);
+        String transactionId = review.get("transactionId").asText();
+        assertThat(getJson("/api/transactions/" + transactionId, sender.accessToken()).get("reviewStatus").asText())
+            .isEqualTo("MANUAL_REVIEW_REQUIRED");
+        assertThat(getJson("/api/accounts/" + sender.accountId() + "/balance", sender.accessToken()).get("balance").asText())
+            .isEqualTo("990");
+        assertThat(getJson("/api/accounts/" + targetReceiver.accountId() + "/balance", targetReceiver.accessToken()).get("balance").asText())
+            .isEqualTo("10");
+
+        JsonNode approved = postJson(
+            "/api/admin/risk/" + review.get("riskEvaluationId").asText() + "/approve",
+            admin,
+            "{\"reason\":\"verified with sender\"}",
+            null
+        ).andExpect(status().isOk()).andReturnJson();
+        assertThat(approved.get("reviewStatus").asText()).isEqualTo("MANUAL_APPROVED");
+        assertThat(waitForStatus(transactionId, sender.accessToken(), TransactionStatus.COMPLETED).get("status").asText())
+            .isEqualTo("COMPLETED");
+        assertThat(getJson("/api/accounts/" + targetReceiver.accountId() + "/balance", targetReceiver.accessToken()).get("balance").asText())
+            .isEqualTo("110");
     }
 
     @Test

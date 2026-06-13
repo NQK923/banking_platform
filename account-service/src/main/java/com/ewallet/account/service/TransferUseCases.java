@@ -2,6 +2,11 @@ package com.ewallet.account.service;
 
 import com.ewallet.account.model.AccountRecord;
 import com.ewallet.account.model.WalletTransaction;
+import com.ewallet.account.risk.RecommendedAction;
+import com.ewallet.account.risk.RiskDecision;
+import com.ewallet.account.risk.RiskEvaluationRecord;
+import com.ewallet.account.risk.RiskScoringService;
+import com.ewallet.account.risk.TransferRiskResponse;
 import com.ewallet.account.security.AuthenticatedUser;
 import com.ewallet.common.AccountStatus;
 import com.ewallet.common.DomainException;
@@ -20,15 +25,23 @@ public class TransferUseCases {
     private final AuthService authService;
     private final TransferMetrics metrics;
     private final FaultInjection faultInjection;
+    private final RiskScoringService riskScoringService;
 
-    public TransferUseCases(WalletStore store, AuthService authService, TransferMetrics metrics, FaultInjection faultInjection) {
+    public TransferUseCases(
+        WalletStore store,
+        AuthService authService,
+        TransferMetrics metrics,
+        FaultInjection faultInjection,
+        RiskScoringService riskScoringService
+    ) {
         this.store = store;
         this.authService = authService;
         this.metrics = metrics;
         this.faultInjection = faultInjection;
+        this.riskScoringService = riskScoringService;
     }
 
-    public WalletTransaction transfer(AuthenticatedUser user, TransferRequest request, String idempotencyHeader) {
+    public Object transfer(AuthenticatedUser user, TransferRequest request, String idempotencyHeader) {
         UUID senderId = request.senderAccountId() == null ? user.accountId() : UUID.fromString(request.senderAccountId());
         if (!senderId.equals(user.accountId()) && !user.roles().contains("ROLE_ADMIN")) {
             throw new DomainException("FORBIDDEN", "Cannot transfer from another account");
@@ -39,11 +52,11 @@ public class TransferUseCases {
             throw new DomainException("IDEMPOTENCY_KEY_REQUIRED", "Idempotency key is required");
         }
         return store.findTransactionByIdempotency(senderId, key)
-            .map(this::resumeIfInFlight)
+            .<Object>map(this::resumeIfInFlight)
             .orElseGet(() -> createTransfer(senderId, request, key));
     }
 
-    private WalletTransaction createTransfer(UUID senderId, TransferRequest request, String key) {
+    private Object createTransfer(UUID senderId, TransferRequest request, String key) {
         AccountRecord sender = store.account(senderId);
         AccountRecord receiver = store.lookupAccount(request.recipientEmail(), request.recipientPhone())
             .orElseThrow(() -> new DomainException("RECIPIENT_NOT_FOUND", "Recipient account was not found"));
@@ -60,10 +73,82 @@ public class TransferUseCases {
         if (!amount.isPositive()) {
             throw new DomainException("INVALID_AMOUNT", "Amount must be positive");
         }
+        UUID correlationId = UUID.randomUUID();
+        RiskDecision risk = riskScoringService.evaluateTransfer(senderId, receiver.id(), amount, request.note(), key, correlationId);
+        RecommendedAction action = risk.recommendedAction();
+        if (action == RecommendedAction.WARN_USER && !Boolean.TRUE.equals(request.riskAcknowledged())) {
+            store.audit("RISK_EVALUATION", risk.riskEvaluationId(), "RiskWarningRequired", "SYSTEM", null, riskPayload(risk), risk.traceId());
+            return TransferRiskResponse.fromDecision(
+                "RISK_WARNING_REQUIRED",
+                risk,
+                null,
+                "Review this transfer carefully and acknowledge the warning before continuing."
+            );
+        }
+        if (action == RecommendedAction.WARN_USER) {
+            requireMatchingRiskEvaluation(request, risk);
+            store.updateRiskDecisionStatus(risk.riskEvaluationId(), "USER_ACKNOWLEDGED");
+            store.audit("RISK_EVALUATION", risk.riskEvaluationId(), "RiskWarningAcknowledged", "USER", sender.userId(), riskPayload(risk), risk.traceId());
+            return createPendingAndMaybeRunSaga(senderId, receiver.id(), amount, request, key, risk, "WARNING_ACKNOWLEDGED", true);
+        }
+        if (action == RecommendedAction.STEP_UP_AUTH && (request.stepUpPin() == null || request.stepUpPin().isBlank())) {
+            store.audit("RISK_EVALUATION", risk.riskEvaluationId(), "RiskStepUpRequired", "SYSTEM", null, riskPayload(risk), risk.traceId());
+            return TransferRiskResponse.fromDecision(
+                "RISK_STEP_UP_REQUIRED",
+                risk,
+                null,
+                "Additional verification is required before this transfer can continue."
+            );
+        }
+        if (action == RecommendedAction.STEP_UP_AUTH) {
+            requireMatchingRiskEvaluation(request, risk);
+            authService.verifyPin(sender.userId(), request.stepUpPin());
+            store.updateRiskDecisionStatus(risk.riskEvaluationId(), "STEP_UP_PASSED");
+            store.audit("RISK_EVALUATION", risk.riskEvaluationId(), "RiskStepUpPassed", "USER", sender.userId(), riskPayload(risk), risk.traceId());
+            return createPendingAndMaybeRunSaga(senderId, receiver.id(), amount, request, key, risk, "STEP_UP_PASSED", true);
+        }
+        if (action == RecommendedAction.MANUAL_REVIEW) {
+            WalletTransaction transaction = createPendingAndMaybeRunSaga(
+                senderId,
+                receiver.id(),
+                amount,
+                request,
+                key,
+                risk,
+                "MANUAL_REVIEW_REQUIRED",
+                false
+            );
+            store.updateRiskDecisionStatus(risk.riskEvaluationId(), "MANUAL_REVIEW_REQUIRED");
+            store.audit("RISK_EVALUATION", risk.riskEvaluationId(), "RiskManualReviewRequired", "SYSTEM", null, riskPayload(risk), risk.traceId());
+            return TransferRiskResponse.fromDecision(
+                "RISK_MANUAL_REVIEW_REQUIRED",
+                risk,
+                transaction.id(),
+                "This transfer requires manual review. Your money has not been debited."
+            );
+        }
+        if (action == RecommendedAction.BLOCK) {
+            store.updateRiskDecisionStatus(risk.riskEvaluationId(), "BLOCKED");
+            store.audit("RISK_EVALUATION", risk.riskEvaluationId(), "RiskTransferBlocked", "SYSTEM", null, riskPayload(risk), risk.traceId());
+            return TransferRiskResponse.fromDecision("RISK_BLOCKED", risk, null, "This transfer was blocked by risk policy.");
+        }
+        return createPendingAndMaybeRunSaga(senderId, receiver.id(), amount, request, key, risk, "NONE", true);
+    }
+
+    private WalletTransaction createPendingAndMaybeRunSaga(
+        UUID senderId,
+        UUID receiverId,
+        Money amount,
+        TransferRequest request,
+        String key,
+        RiskDecision risk,
+        String reviewStatus,
+        boolean runImmediately
+    ) {
         UUID txId = UUID.randomUUID();
         WalletTransaction transaction = new WalletTransaction(
-            txId, senderId, receiver.id(), amount.amount(), amount.currency(), TransactionStatus.PENDING,
-            key, UUID.randomUUID(), Instant.now(), Instant.now(), false, request.note(), null
+            txId, senderId, receiverId, amount.amount(), amount.currency(), TransactionStatus.PENDING,
+            key, risk.traceId(), Instant.now(), Instant.now(), false, request.note(), null, reviewStatus, risk.riskEvaluationId()
         );
         store.saveTransactionAndAudit(
             transaction,
@@ -71,11 +156,19 @@ public class TransferUseCases {
             txId,
             "TransferInitiated",
             "USER",
-            sender.userId(),
-            Map.of("amount", amount.asString()),
+            store.account(senderId).userId(),
+            Map.of(
+                "amount", amount.asString(),
+                "riskEvaluationId", risk.riskEvaluationId().toString(),
+                "riskLevel", risk.riskLevel().name(),
+                "recommendedAction", risk.recommendedAction().name()
+            ),
             transaction.correlationId()
         );
-        CompletableFuture.runAsync(() -> runSaga(txId));
+        store.linkRiskEvaluationToTransaction(risk.riskEvaluationId(), txId, reviewStatus == null || "NONE".equals(reviewStatus) ? "EVALUATED" : riskDecisionStatus(reviewStatus));
+        if (runImmediately) {
+            CompletableFuture.runAsync(() -> runSaga(txId));
+        }
         return transaction;
     }
 
@@ -205,6 +298,9 @@ public class TransferUseCases {
     }
 
     private WalletTransaction resumeIfInFlight(WalletTransaction transaction) {
+        if ("MANUAL_REVIEW_REQUIRED".equals(transaction.reviewStatus()) || "MANUAL_REJECTED".equals(transaction.reviewStatus())) {
+            return transaction;
+        }
         if (transaction.status() == TransactionStatus.PENDING || transaction.status() == TransactionStatus.COMPENSATING) {
             CompletableFuture.runAsync(() -> runSaga(transaction.id()));
         }
@@ -233,6 +329,84 @@ public class TransferUseCases {
         return cancelled;
     }
 
+    public WalletTransaction approveRiskReview(UUID riskEvaluationId, String reason, AuthenticatedUser user) {
+        requireAdmin(user);
+        RiskEvaluationRecord risk = store.riskEvaluation(riskEvaluationId);
+        UUID txId = risk.transactionId();
+        if (txId == null) {
+            throw new DomainException("RISK_TRANSACTION_NOT_FOUND", "Risk evaluation is not linked to a transaction");
+        }
+        WalletTransaction tx = get(txId);
+        if (!"MANUAL_REVIEW_REQUIRED".equals(tx.reviewStatus())) {
+            throw new DomainException("RISK_REVIEW_NOT_REQUIRED", "Transaction is not waiting for manual review");
+        }
+        WalletTransaction approved = tx.withReviewStatus("MANUAL_APPROVED");
+        store.saveTransaction(approved);
+        store.updateRiskDecisionStatus(riskEvaluationId, "MANUAL_APPROVED");
+        store.saveRiskReviewAction(riskEvaluationId, txId, "APPROVE", reason, user.userId(), "ROLE_ADMIN", tx.correlationId());
+        store.audit("RISK_EVALUATION", riskEvaluationId, "RiskManualApproved", "ADMIN", user.userId(), Map.of("reason", safe(reason)), tx.correlationId());
+        CompletableFuture.runAsync(() -> runSaga(txId));
+        return approved;
+    }
+
+    public WalletTransaction rejectRiskReview(UUID riskEvaluationId, String reason, AuthenticatedUser user) {
+        requireAdmin(user);
+        RiskEvaluationRecord risk = store.riskEvaluation(riskEvaluationId);
+        UUID txId = risk.transactionId();
+        if (txId == null) {
+            throw new DomainException("RISK_TRANSACTION_NOT_FOUND", "Risk evaluation is not linked to a transaction");
+        }
+        WalletTransaction tx = get(txId);
+        if (tx.debitApplied()) {
+            throw new DomainException("RISK_REJECT_NOT_ALLOWED", "Cannot reject after debit");
+        }
+        WalletTransaction rejected = tx.withReviewStatus("MANUAL_REJECTED")
+            .withStatus(TransactionStatus.FAILED)
+            .withFailureReason("RISK_MANUAL_REJECTED: " + safe(reason));
+        store.saveTransaction(rejected);
+        store.updateRiskDecisionStatus(riskEvaluationId, "MANUAL_REJECTED");
+        store.saveRiskReviewAction(riskEvaluationId, txId, "REJECT", reason, user.userId(), "ROLE_ADMIN", tx.correlationId());
+        store.audit("RISK_EVALUATION", riskEvaluationId, "RiskManualRejected", "ADMIN", user.userId(), Map.of("reason", safe(reason)), tx.correlationId());
+        return rejected;
+    }
+
+    private void requireMatchingRiskEvaluation(TransferRequest request, RiskDecision risk) {
+        if (request.riskEvaluationId() == null || !risk.riskEvaluationId().toString().equals(request.riskEvaluationId())) {
+            throw new DomainException("RISK_EVALUATION_REQUIRED", "Matching risk evaluation ID is required");
+        }
+    }
+
+    private void requireAdmin(AuthenticatedUser user) {
+        if (user == null || !user.roles().contains("ROLE_ADMIN")) {
+            throw new DomainException("FORBIDDEN", "Admin actor is required");
+        }
+    }
+
+    private Map<String, String> riskPayload(RiskDecision risk) {
+        return Map.of(
+            "riskScore", String.valueOf(risk.riskScore()),
+            "riskLevel", risk.riskLevel().name(),
+            "recommendedAction", risk.recommendedAction().name(),
+            "reasonCodes", String.join(",", risk.reasons().stream().map(reason -> reason.code()).toList())
+        );
+    }
+
+    private String riskDecisionStatus(String reviewStatus) {
+        return switch (reviewStatus) {
+            case "WARNING_ACKNOWLEDGED" -> "USER_ACKNOWLEDGED";
+            case "STEP_UP_PASSED" -> "STEP_UP_PASSED";
+            case "MANUAL_REVIEW_REQUIRED" -> "MANUAL_REVIEW_REQUIRED";
+            case "MANUAL_APPROVED" -> "MANUAL_APPROVED";
+            case "MANUAL_REJECTED" -> "MANUAL_REJECTED";
+            case "BLOCKED" -> "BLOCKED";
+            default -> "EVALUATED";
+        };
+    }
+
+    private String safe(String value) {
+        return value == null ? "" : value;
+    }
+
     public record TransferRequest(
         String senderAccountId,
         String recipientEmail,
@@ -240,7 +414,21 @@ public class TransferUseCases {
         String amount,
         String idempotencyKey,
         String pin,
-        String note
+        String note,
+        String riskEvaluationId,
+        Boolean riskAcknowledged,
+        String stepUpPin
     ) {
+        public TransferRequest(
+            String senderAccountId,
+            String recipientEmail,
+            String recipientPhone,
+            String amount,
+            String idempotencyKey,
+            String pin,
+            String note
+        ) {
+            this(senderAccountId, recipientEmail, recipientPhone, amount, idempotencyKey, pin, note, null, null, null);
+        }
     }
 }

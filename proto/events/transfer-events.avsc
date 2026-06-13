@@ -11,6 +11,15 @@
       "MoneyDebitFailed",
       "MoneyCreditFailed",
       "MoneyDebitReversed",
+      "RiskEvaluationCreated",
+      "RiskWarningRequired",
+      "RiskWarningAcknowledged",
+      "RiskStepUpRequired",
+      "RiskStepUpPassed",
+      "RiskManualReviewRequired",
+      "RiskManualApproved",
+      "RiskManualRejected",
+      "RiskTransferBlocked",
       "TransferCompleted",
       "TransferFailed"
     ]
@@ -27,6 +36,27 @@
       {"name": "receiver_account_id", "type": "string"},
       {"name": "amount", "type": "string"},
       {"name": "currency", "type": "string"},
+      {"name": "correlation_id", "type": "string"}
+    ]
+  },
+  {
+    "type": "record",
+    "name": "RiskDecisionEvent",
+    "namespace": "ewallet.events.v1",
+    "fields": [
+      {"name": "schema_version", "type": "int", "default": 1},
+      {"name": "event_id", "type": "string"},
+      {"name": "event_type", "type": "string"},
+      {"name": "risk_evaluation_id", "type": "string"},
+      {"name": "transaction_id", "type": ["null", "string"], "default": null},
+      {"name": "sender_account_id", "type": "string"},
+      {"name": "receiver_account_id", "type": ["null", "string"], "default": null},
+      {"name": "risk_score", "type": "int"},
+      {"name": "risk_level", "type": "string"},
+      {"name": "recommended_action", "type": "string"},
+      {"name": "reason_codes", "type": {"type": "array", "items": "string"}, "default": []},
+      {"name": "model_version", "type": "string"},
+      {"name": "policy_version", "type": "string"},
       {"name": "correlation_id", "type": "string"}
     ]
   },

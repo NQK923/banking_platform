@@ -6,12 +6,18 @@ import com.ewallet.account.model.LedgerEntryRecord;
 import com.ewallet.account.model.OutboxRecord;
 import com.ewallet.account.model.UserRecord;
 import com.ewallet.account.model.WalletTransaction;
+import com.ewallet.account.risk.RecommendedAction;
+import com.ewallet.account.risk.RiskEvaluationRecord;
+import com.ewallet.account.risk.RiskFeatures;
+import com.ewallet.account.risk.RiskLevel;
+import com.ewallet.account.risk.RiskReason;
 import com.ewallet.common.AccountKind;
 import com.ewallet.common.AccountStatus;
 import com.ewallet.common.DomainException;
 import com.ewallet.common.EntryType;
 import com.ewallet.common.Money;
 import com.ewallet.common.TransactionStatus;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -444,21 +450,23 @@ public class WalletStore {
         int updated = jdbc.update(
             """
                 UPDATE transactions
-                SET status = ?, debit_applied = ?, updated_at = ?, failure_reason = ?
+                SET status = ?, debit_applied = ?, updated_at = ?, failure_reason = ?, review_status = ?, risk_evaluation_id = ?
                 WHERE id = ?
                 """,
             transaction.status().name(),
             transaction.debitApplied(),
             Timestamp.from(transaction.updatedAt()),
             transaction.failureReason(),
+            transaction.reviewStatus(),
+            transaction.riskEvaluationId(),
             transaction.id()
         );
         if (updated == 0) {
             jdbc.update(
                 """
                     INSERT INTO transactions
-                        (id, sender_id, receiver_id, amount, currency, status, idempotency_key, correlation_id, debit_applied, created_at, updated_at, note, failure_reason)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        (id, sender_id, receiver_id, amount, currency, status, idempotency_key, correlation_id, debit_applied, created_at, updated_at, note, failure_reason, review_status, risk_evaluation_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                 transaction.id(),
                 transaction.senderId(),
@@ -472,7 +480,9 @@ public class WalletStore {
                 Timestamp.from(transaction.createdAt()),
                 Timestamp.from(transaction.updatedAt()),
                 transaction.note(),
-                transaction.failureReason()
+                transaction.failureReason(),
+                transaction.reviewStatus(),
+                transaction.riskEvaluationId()
             );
         }
         return transaction;
@@ -506,6 +516,195 @@ public class WalletStore {
             senderId,
             key
         );
+    }
+
+    public Optional<RiskEvaluationRecord> findLatestRiskEvaluation(UUID senderId, String key) {
+        return queryOne(
+            "SELECT * FROM ai_risk_evaluations WHERE sender_account_id = ? AND idempotency_key = ? ORDER BY created_at DESC LIMIT 1",
+            riskEvaluationMapper(),
+            senderId,
+            key
+        );
+    }
+
+    public RiskEvaluationRecord riskEvaluation(UUID id) {
+        return queryOne("SELECT * FROM ai_risk_evaluations WHERE id = ?", riskEvaluationMapper(), id)
+            .orElseThrow(() -> new DomainException("RISK_EVALUATION_NOT_FOUND", "Risk evaluation not found"));
+    }
+
+    public List<RiskEvaluationRecord> riskEvaluations() {
+        return jdbc.query("SELECT * FROM ai_risk_evaluations ORDER BY created_at DESC", riskEvaluationMapper());
+    }
+
+    @Transactional
+    public synchronized RiskEvaluationRecord saveRiskEvaluation(RiskEvaluationRecord record, String featureVersion) {
+        jdbc.update(
+            """
+                INSERT INTO ai_risk_evaluations
+                    (id, transaction_id, sender_account_id, receiver_account_id, idempotency_key, payload_hash,
+                     amount, currency, risk_score, risk_level, recommended_action, reasons, features,
+                     model_version, policy_version, decision_status, trace_id, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?, ?, ?, ?, ?, ?)
+                """,
+            record.id(),
+            record.transactionId(),
+            record.senderAccountId(),
+            record.receiverAccountId(),
+            record.idempotencyKey(),
+            record.payloadHash(),
+            record.amount(),
+            record.currency(),
+            record.riskScore(),
+            record.riskLevel().name(),
+            record.recommendedAction().name(),
+            toJson(record.reasons()),
+            toJson(record.features()),
+            record.modelVersion(),
+            record.policyVersion(),
+            record.decisionStatus(),
+            record.traceId(),
+            Timestamp.from(record.createdAt()),
+            Timestamp.from(record.updatedAt())
+        );
+        jdbc.update(
+            """
+                INSERT INTO risk_feature_snapshots
+                    (id, risk_evaluation_id, sender_account_id, receiver_account_id, feature_version, features, created_at)
+                VALUES (?, ?, ?, ?, ?, ?::jsonb, ?)
+                """,
+            UUID.randomUUID(),
+            record.id(),
+            record.senderAccountId(),
+            record.receiverAccountId(),
+            featureVersion,
+            toJson(record.features()),
+            Timestamp.from(record.createdAt())
+        );
+        audit(
+            "RISK_EVALUATION",
+            record.id(),
+            "RiskEvaluationCreated",
+            "SYSTEM",
+            null,
+            Map.of(
+                "riskScore", String.valueOf(record.riskScore()),
+                "riskLevel", record.riskLevel().name(),
+                "recommendedAction", record.recommendedAction().name()
+            ),
+            record.traceId()
+        );
+        return record;
+    }
+
+    public synchronized void linkRiskEvaluationToTransaction(UUID riskEvaluationId, UUID transactionId, String decisionStatus) {
+        jdbc.update(
+            "UPDATE ai_risk_evaluations SET transaction_id = ?, decision_status = ?, updated_at = ? WHERE id = ?",
+            transactionId,
+            decisionStatus,
+            Timestamp.from(Instant.now()),
+            riskEvaluationId
+        );
+    }
+
+    public synchronized void updateRiskDecisionStatus(UUID riskEvaluationId, String decisionStatus) {
+        jdbc.update(
+            "UPDATE ai_risk_evaluations SET decision_status = ?, updated_at = ? WHERE id = ?",
+            decisionStatus,
+            Timestamp.from(Instant.now()),
+            riskEvaluationId
+        );
+    }
+
+    @Transactional
+    public synchronized void saveRiskReviewAction(UUID riskEvaluationId, UUID transactionId, String action, String reason, UUID actorId, String actorRole, UUID traceId) {
+        jdbc.update(
+            """
+                INSERT INTO risk_review_actions
+                    (id, risk_evaluation_id, transaction_id, action, reason, actor_id, actor_role, trace_id, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+            UUID.randomUUID(),
+            riskEvaluationId,
+            transactionId,
+            action,
+            reason,
+            actorId,
+            actorRole,
+            traceId,
+            Timestamp.from(Instant.now())
+        );
+    }
+
+    public RiskFeatures riskFeatures(UUID senderAccountId, UUID receiverAccountId, String note) {
+        Boolean knownRecipient = jdbc.queryForObject(
+            """
+                SELECT EXISTS (
+                    SELECT 1 FROM transactions
+                    WHERE sender_id = ? AND receiver_id = ? AND status = 'COMPLETED'
+                )
+                """,
+            Boolean.class,
+            senderAccountId,
+            receiverAccountId
+        );
+        BigDecimal baseline = jdbc.queryForObject(
+            """
+                SELECT avg(amount)
+                FROM transactions
+                WHERE sender_id = ? AND status = 'COMPLETED' AND created_at >= now() - interval '30 days'
+                """,
+            BigDecimal.class,
+            senderAccountId
+        );
+        Integer velocity = jdbc.queryForObject(
+            """
+                SELECT count(*)
+                FROM transactions
+                WHERE sender_id = ? AND created_at >= now() - interval '10 minutes'
+                """,
+            Integer.class,
+            senderAccountId
+        );
+        Integer pinFailures = jdbc.queryForObject(
+            """
+                SELECT COALESCE(u.failed_pin_attempts, 0)
+                FROM accounts a
+                JOIN users u ON u.id = a.user_id
+                WHERE a.id = ?
+                """,
+            Integer.class,
+            senderAccountId
+        );
+        Integer distinctInbound = jdbc.queryForObject(
+            """
+                SELECT count(DISTINCT sender_id)
+                FROM transactions
+                WHERE receiver_id = ? AND status = 'COMPLETED' AND created_at >= now() - interval '1 hour'
+                """,
+            Integer.class,
+            receiverAccountId
+        );
+        return new RiskFeatures(
+            Boolean.TRUE.equals(knownRecipient),
+            baseline,
+            velocity == null ? 0 : velocity,
+            pinFailures == null ? 0 : pinFailures,
+            distinctInbound == null ? 0 : distinctInbound,
+            suspiciousNote(note)
+        );
+    }
+
+    private boolean suspiciousNote(String note) {
+        if (note == null || note.isBlank()) {
+            return false;
+        }
+        String normalized = note.toLowerCase();
+        return normalized.contains("urgent")
+            || normalized.contains("otp")
+            || normalized.contains("gift card")
+            || normalized.contains("police")
+            || normalized.contains("investment")
+            || normalized.contains("loan fee");
     }
 
     public List<WalletTransaction> transactions() {
@@ -553,6 +752,7 @@ public class WalletStore {
     public List<AccountRecord> accounts() {
         return jdbc.query("SELECT * FROM accounts ORDER BY created_at", accountMapper());
     }
+
 
     @Transactional
     public synchronized AccountRecord suspendAccount(UUID id, UUID actorId) {
@@ -884,7 +1084,33 @@ public class WalletStore {
             instant(rs, "updated_at"),
             rs.getBoolean("debit_applied"),
             rs.getString("note"),
-            rs.getString("failure_reason")
+            rs.getString("failure_reason"),
+            rs.getString("review_status"),
+            nullableUuid(rs, "risk_evaluation_id")
+        );
+    }
+
+    private RowMapper<RiskEvaluationRecord> riskEvaluationMapper() {
+        return (rs, rowNum) -> new RiskEvaluationRecord(
+            uuid(rs, "id"),
+            nullableUuid(rs, "transaction_id"),
+            uuid(rs, "sender_account_id"),
+            nullableUuid(rs, "receiver_account_id"),
+            rs.getString("idempotency_key"),
+            rs.getString("payload_hash"),
+            rs.getBigDecimal("amount"),
+            rs.getString("currency"),
+            rs.getInt("risk_score"),
+            RiskLevel.valueOf(rs.getString("risk_level")),
+            RecommendedAction.valueOf(rs.getString("recommended_action")),
+            readRiskReasons(rs.getString("reasons")),
+            readStringMap(rs.getString("features")),
+            rs.getString("model_version"),
+            rs.getString("policy_version"),
+            rs.getString("decision_status"),
+            nullableUuid(rs, "trace_id"),
+            instant(rs, "created_at"),
+            instant(rs, "updated_at")
         );
     }
 
@@ -960,6 +1186,22 @@ public class WalletStore {
             return objectMapper.readTree(value);
         } catch (JsonProcessingException ex) {
             throw new IllegalStateException("Unable to parse JSON payload", ex);
+        }
+    }
+
+    private List<RiskReason> readRiskReasons(String value) {
+        try {
+            return objectMapper.readValue(value, new TypeReference<List<RiskReason>>() {});
+        } catch (JsonProcessingException ex) {
+            throw new IllegalStateException("Unable to parse risk reasons", ex);
+        }
+    }
+
+    private Map<String, String> readStringMap(String value) {
+        try {
+            return objectMapper.readValue(value, new TypeReference<Map<String, String>>() {});
+        } catch (JsonProcessingException ex) {
+            throw new IllegalStateException("Unable to parse risk features", ex);
         }
     }
 

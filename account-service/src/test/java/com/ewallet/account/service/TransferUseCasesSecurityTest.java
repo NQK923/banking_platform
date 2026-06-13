@@ -7,6 +7,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.ewallet.account.model.WalletTransaction;
+import com.ewallet.account.risk.RiskScoringService;
 import com.ewallet.account.security.AuthenticatedUser;
 import com.ewallet.common.DomainException;
 import com.ewallet.common.TransactionStatus;
@@ -85,7 +86,8 @@ class TransferUseCasesSecurityTest {
             store,
             org.mockito.Mockito.mock(AuthService.class),
             new TransferMetrics(new SimpleMeterRegistry()),
-            new FaultInjection("")
+            new FaultInjection(""),
+            new RiskScoringService(store)
         );
     }
 }

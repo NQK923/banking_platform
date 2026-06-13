@@ -26,7 +26,7 @@ public class TransactionController {
     }
 
     @PostMapping("/transfer")
-    WalletTransaction transfer(
+    Object transfer(
         @AuthenticationPrincipal AuthenticatedUser user,
         @RequestBody TransferRequest request,
         @RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey

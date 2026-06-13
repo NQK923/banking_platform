@@ -105,7 +105,13 @@ paths:
             type: string
       responses:
         "200":
-          description: Transfer state
+          description: Transfer state or pre-debit risk-control challenge
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/WalletTransaction"
+                  - $ref: "#/components/schemas/TransferRiskResponse"
   /api/transactions/{id}:
     get:
       operationId: getTransaction
@@ -126,15 +132,70 @@ paths:
   /api/admin/accounts:
     get:
       operationId: adminListAccounts
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 0
+        - name: size
+          in: query
+          schema:
+            type: integer
+            default: 10
+        - name: q
+          in: query
+          schema:
+            type: string
       responses:
         "200":
-          description: Admin account list
+          description: Paginated enriched admin account list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminAccountPage"
+  /api/admin/accounts/{id}:
+    get:
+      operationId: adminGetAccount
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Enriched admin account detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminAccount"
   /api/admin/transactions:
     get:
       operationId: adminListTransactions
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 0
+        - name: size
+          in: query
+          schema:
+            type: integer
+            default: 10
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: accountId
+          in: query
+          schema:
+            type: string
       responses:
         "200":
-          description: Admin transaction list
+          description: Paginated admin transaction list
   /api/admin/accounts/{id}/suspend:
     post:
       operationId: adminSuspendAccount
@@ -148,12 +209,83 @@ paths:
       responses:
         "200":
           description: Suspended account
+  /api/admin/risk:
+    get:
+      operationId: adminListRiskEvaluations
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 0
+        - name: size
+          in: query
+          schema:
+            type: integer
+            default: 10
+        - name: level
+          in: query
+          schema:
+            type: string
+            enum: [LOW, MEDIUM, HIGH, CRITICAL]
+        - name: action
+          in: query
+          schema:
+            type: string
+            enum: [ALLOW, WARN_USER, STEP_UP_AUTH, MANUAL_REVIEW, BLOCK]
+      responses:
+        "200":
+          description: Paginated risk evaluation list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RiskEvaluationPage"
+  /api/admin/risk/{id}:
+    get:
+      operationId: adminGetRiskEvaluation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Risk evaluation detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RiskEvaluation"
+  /api/admin/risk/{id}/approve:
+    post:
+      operationId: adminApproveRiskReview
+      responses:
+        "200":
+          description: Approved transaction now eligible for saga processing
+  /api/admin/risk/{id}/reject:
+    post:
+      operationId: adminRejectRiskReview
+      responses:
+        "200":
+          description: Rejected transaction failed before debit
   /api/admin/audit:
     get:
       operationId: adminListAudit
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 0
+        - name: size
+          in: query
+          schema:
+            type: integer
+            default: 15
       responses:
         "200":
-          description: Admin audit list
+          description: Paginated admin audit list
   /api/admin/metrics:
     get:
       operationId: adminMetrics
@@ -202,6 +334,16 @@ paths:
       responses:
         "200":
           description: Reconciliation report
+  /internal/ai/risk-score:
+    post:
+      operationId: scoreTransferRisk
+      responses:
+        "200":
+          description: Deterministic transfer risk decision
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RiskDecision"
 components:
   schemas:
     ErrorResponse:
@@ -217,3 +359,238 @@ components:
     MoneyString:
       type: string
       pattern: "^-?[0-9]+(\\.[0-9]+)?$"
+    RiskLevel:
+      type: string
+      enum: [LOW, MEDIUM, HIGH, CRITICAL]
+    RecommendedAction:
+      type: string
+      enum: [ALLOW, WARN_USER, STEP_UP_AUTH, MANUAL_REVIEW, BLOCK]
+    RiskReason:
+      type: object
+      required: [code, weight, message, evidence]
+      properties:
+        code:
+          type: string
+        weight:
+          type: integer
+        message:
+          type: string
+        evidence:
+          type: object
+          additionalProperties:
+            type: string
+    RiskDecision:
+      type: object
+      required: [riskEvaluationId, riskScore, riskLevel, recommendedAction, reasons, modelVersion, policyVersion, evaluatedAt, traceId]
+      properties:
+        riskEvaluationId:
+          type: string
+          format: uuid
+        riskScore:
+          type: integer
+          minimum: 0
+          maximum: 100
+        riskLevel:
+          $ref: "#/components/schemas/RiskLevel"
+        recommendedAction:
+          $ref: "#/components/schemas/RecommendedAction"
+        reasons:
+          type: array
+          items:
+            $ref: "#/components/schemas/RiskReason"
+        modelVersion:
+          type: string
+        policyVersion:
+          type: string
+        evaluatedAt:
+          type: string
+          format: date-time
+        traceId:
+          type: string
+          format: uuid
+    TransferRiskResponse:
+      allOf:
+        - $ref: "#/components/schemas/RiskDecision"
+        - type: object
+          required: [result, message]
+          properties:
+            result:
+              type: string
+              enum: [RISK_WARNING_REQUIRED, RISK_STEP_UP_REQUIRED, RISK_MANUAL_REVIEW_REQUIRED, RISK_BLOCKED]
+            transactionId:
+              type: string
+              format: uuid
+              nullable: true
+            message:
+              type: string
+    WalletTransaction:
+      type: object
+      required: [id, senderId, receiverId, amount, currency, status, idempotencyKey, createdAt, updatedAt, debitApplied]
+      properties:
+        id:
+          type: string
+          format: uuid
+        senderId:
+          type: string
+          format: uuid
+        receiverId:
+          type: string
+          format: uuid
+        amount:
+          $ref: "#/components/schemas/MoneyString"
+        currency:
+          type: string
+        status:
+          type: string
+          enum: [PENDING, COMPLETED, FAILED, COMPENSATING, CANCELLED]
+        idempotencyKey:
+          type: string
+        correlationId:
+          type: string
+          format: uuid
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        debitApplied:
+          type: boolean
+        note:
+          type: string
+          nullable: true
+        failureReason:
+          type: string
+          nullable: true
+        reviewStatus:
+          type: string
+          nullable: true
+        riskEvaluationId:
+          type: string
+          format: uuid
+          nullable: true
+    RiskEvaluation:
+      type: object
+      required: [id, senderAccountId, receiverAccountId, idempotencyKey, payloadHash, amount, currency, riskScore, riskLevel, recommendedAction, reasons, features, modelVersion, policyVersion, decisionStatus, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        transactionId:
+          type: string
+          format: uuid
+          nullable: true
+        senderAccountId:
+          type: string
+          format: uuid
+        receiverAccountId:
+          type: string
+          format: uuid
+          nullable: true
+        idempotencyKey:
+          type: string
+        payloadHash:
+          type: string
+        amount:
+          $ref: "#/components/schemas/MoneyString"
+        currency:
+          type: string
+        riskScore:
+          type: integer
+          minimum: 0
+          maximum: 100
+        riskLevel:
+          $ref: "#/components/schemas/RiskLevel"
+        recommendedAction:
+          $ref: "#/components/schemas/RecommendedAction"
+        reasons:
+          type: array
+          items:
+            $ref: "#/components/schemas/RiskReason"
+        features:
+          type: object
+          additionalProperties:
+            type: string
+        modelVersion:
+          type: string
+        policyVersion:
+          type: string
+        decisionStatus:
+          type: string
+        traceId:
+          type: string
+          format: uuid
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    RiskEvaluationPage:
+      type: object
+      required: [items, page, size, totalElements, totalPages]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/RiskEvaluation"
+        page:
+          type: integer
+        size:
+          type: integer
+        totalElements:
+          type: integer
+          format: int64
+        totalPages:
+          type: integer
+    AdminAccount:
+      type: object
+      required: [id, currency, kind, status, balance, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        userId:
+          type: string
+          format: uuid
+          nullable: true
+        email:
+          type: string
+          nullable: true
+        phoneNumber:
+          type: string
+          nullable: true
+        code:
+          type: string
+          nullable: true
+        currency:
+          type: string
+        kind:
+          type: string
+          enum: [USER, SYSTEM]
+        status:
+          type: string
+        balance:
+          $ref: "#/components/schemas/MoneyString"
+        createdAt:
+          type: string
+          format: date-time
+    AdminAccountPage:
+      type: object
+      required: [items, page, size, totalElements, totalPages]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminAccount"
+        page:
+          type: integer
+        size:
+          type: integer
+        totalElements:
+          type: integer
+          format: int64
+        totalPages:
+          type: integer
