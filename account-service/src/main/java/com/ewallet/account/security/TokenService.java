@@ -44,18 +44,24 @@ public class TokenService {
     }
 
     public AuthenticatedUser parseAccessToken(String token) {
-        Map<String, String> payload = parse(token);
-        if (!"access".equals(payload.get("typ"))) {
-            throw new DomainException("AUTH_INVALID", "Invalid token type");
+        try {
+            Map<String, String> payload = parse(token);
+            if (!"access".equals(payload.get("typ"))) {
+                throw new DomainException("AUTH_INVALID", "Invalid token type");
+            }
+            long exp = Long.parseLong(payload.get("exp"));
+            if (Instant.now().getEpochSecond() > exp) {
+                throw new DomainException("AUTH_EXPIRED", "Access token expired");
+            }
+            String accountValue = payload.get("accountId");
+            UUID accountId = accountValue == null || accountValue.isBlank() ? null : UUID.fromString(accountValue);
+            Set<String> roles = Set.of(payload.getOrDefault("roles", "").split(","));
+            return new AuthenticatedUser(UUID.fromString(payload.get("sub")), accountId, roles);
+        } catch (DomainException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new DomainException("AUTH_INVALID", "Invalid bearer token");
         }
-        long exp = Long.parseLong(payload.get("exp"));
-        if (Instant.now().getEpochSecond() > exp) {
-            throw new DomainException("AUTH_EXPIRED", "Access token expired");
-        }
-        String accountValue = payload.get("accountId");
-        UUID accountId = accountValue == null || accountValue.isBlank() ? null : UUID.fromString(accountValue);
-        Set<String> roles = Set.of(payload.getOrDefault("roles", "").split(","));
-        return new AuthenticatedUser(UUID.fromString(payload.get("sub")), accountId, roles);
     }
 
     @SuppressWarnings("unchecked")
