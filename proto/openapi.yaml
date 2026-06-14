@@ -23,6 +23,42 @@ paths:
       responses:
         "200":
           description: Rotated tokens
+  /api/auth/password/reset:
+    post:
+      operationId: resetPassword
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [identifier, pin, newPassword]
+              properties:
+                identifier:
+                  type: string
+                  description: Registered email or phone number
+                pin:
+                  type: string
+                  pattern: "^\\d{6}$"
+                  description: Transaction PIN used as the v1 local recovery factor
+                newPassword:
+                  type: string
+                  minLength: 6
+      responses:
+        "200":
+          description: Password reset; user can log in with the new password
+        "401":
+          description: Unknown email/phone
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Invalid or locked transaction PIN
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /api/accounts:
     post:
       operationId: createAccount

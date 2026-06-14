@@ -52,6 +52,20 @@ public class AuthService {
     }
 
     @Transactional(noRollbackFor = DomainException.class)
+    public void resetPassword(ResetPasswordRequest request) {
+        UserRecord user = lookupUser(request.identifier());
+        verifyPin(user.id(), request.pin());
+        if (request.newPassword() == null || request.newPassword().length() < 6) {
+            throw new DomainException("INVALID_PASSWORD_FORMAT", "Password must be at least 6 characters");
+        }
+        store.saveUser(new UserRecord(
+            user.id(), user.email(), user.phone(), passwordEncoder.encode(request.newPassword()), user.pinHash(),
+            null, user.roles(), user.status(), user.createdAt(), 0, null
+        ));
+        store.audit("USER", user.id(), "PasswordReset", "USER", user.id(), Map.of("identifier", safeIdentifier(request.identifier())), null);
+    }
+
+    @Transactional(noRollbackFor = DomainException.class)
     public void verifyPin(UUID userId, String pin) {
         UserRecord user = store.findUser(userId)
             .orElseThrow(() -> new DomainException("AUTH_INVALID", "Unknown user"));
@@ -118,12 +132,29 @@ public class AuthService {
     }
 
     private UserRecord lookupUser(String identifier) {
+        if (identifier == null || identifier.isBlank()) {
+            throw new DomainException("AUTH_INVALID", "Invalid credentials");
+        }
         if (identifier.contains("@")) {
             return store.findUserByEmail(identifier)
                 .orElseThrow(() -> new DomainException("AUTH_INVALID", "Invalid credentials"));
         }
         return store.findUserByPhone(identifier)
             .orElseThrow(() -> new DomainException("AUTH_INVALID", "Invalid credentials"));
+    }
+
+    private String safeIdentifier(String identifier) {
+        if (identifier == null || identifier.isBlank()) {
+            return "";
+        }
+        String value = identifier.trim();
+        if (value.contains("@")) {
+            int at = value.indexOf("@");
+            String local = value.substring(0, at);
+            String domain = value.substring(at);
+            return (local.length() <= 2 ? "***" : local.substring(0, 2) + "***") + domain;
+        }
+        return value.length() <= 4 ? "***" : "***" + value.substring(value.length() - 4);
     }
 
     private AuthResponse issueTokens(UserRecord user, AccountRecord account) {
@@ -145,6 +176,9 @@ public class AuthService {
     }
 
     public record RefreshRequest(String userId, String refreshToken) {
+    }
+
+    public record ResetPasswordRequest(String identifier, String pin, String newPassword) {
     }
 
     public record AuthResponse(String accessToken, String refreshToken, String userId, String accountId, java.util.Set<String> roles) {

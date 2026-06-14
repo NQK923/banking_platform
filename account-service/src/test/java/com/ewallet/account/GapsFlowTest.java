@@ -115,6 +115,48 @@ class GapsFlowTest {
     }
 
     @Test
+    void testResetPasswordWithTransactionPin() throws Exception {
+        register("reset-user@example.test", "+84000000920", "123456");
+
+        postJson(
+            "/api/auth/password/reset",
+            null,
+            "{\"identifier\":\"reset-user@example.test\",\"pin\":\"123456\",\"newPassword\":\"NewPassword123!\"}",
+            null
+        ).andExpect(status().isOk());
+
+        postJson(
+            "/api/auth/login",
+            null,
+            "{\"identifier\":\"reset-user@example.test\",\"password\":\"Password123!\"}",
+            null
+        ).andExpect(status().isUnauthorized());
+
+        login("reset-user@example.test", "NewPassword123!");
+    }
+
+    @Test
+    void testResetPasswordRejectsWrongPin() throws Exception {
+        register("reset-wrong-pin@example.test", "+84000000921", "123456");
+
+        postJson(
+            "/api/auth/password/reset",
+            null,
+            "{\"identifier\":\"reset-wrong-pin@example.test\",\"pin\":\"999999\",\"newPassword\":\"NewPassword123!\"}",
+            null
+        ).andExpect(status().isForbidden());
+
+        postJson(
+            "/api/auth/login",
+            null,
+            "{\"identifier\":\"reset-wrong-pin@example.test\",\"password\":\"NewPassword123!\"}",
+            null
+        ).andExpect(status().isUnauthorized());
+
+        login("reset-wrong-pin@example.test", "Password123!");
+    }
+
+    @Test
     void testWithdrawPinVerification() throws Exception {
         Auth user = register("withdrawuser@example.test", "+84000000904", "123456");
         String admin = login("admin@local.test", "Admin123!").accessToken();
