@@ -16,13 +16,13 @@ import org.apache.kafka.common.serialization.StringSerializer;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.kafka.KafkaContainer;
+import org.testcontainers.kafka.ConfluentKafkaContainer;
 import org.testcontainers.utility.DockerImageName;
 
 @Testcontainers(disabledWithoutDocker = true)
 class KafkaContractTest {
     @Container
-    static final KafkaContainer KAFKA = new KafkaContainer(
+    static final ConfluentKafkaContainer KAFKA = new ConfluentKafkaContainer(
         DockerImageName.parse("confluentinc/cp-kafka:7.7.1")
     );
 
