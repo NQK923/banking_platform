@@ -15,7 +15,7 @@ import com.ewallet.contract.account.v1.LookupAccountRequest;
 import com.ewallet.contract.account.v1.LookupAccountResponse;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
-import io.grpc.testing.StreamRecorder;
+import io.grpc.stub.StreamObserver;
 import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -31,15 +31,15 @@ class AccountGrpcServiceTest {
         when(accountUseCases.balance(accountId))
             .thenReturn(new BalanceResponse(accountId.toString(), "1000", "VND"));
 
-        StreamRecorder<GetBalanceResponse> recorder = StreamRecorder.create();
+        RecordingObserver<GetBalanceResponse> recorder = new RecordingObserver<>();
         service.getBalance(GetBalanceRequest.newBuilder().setAccountId(accountId.toString()).build(), recorder);
 
-        assertThat(recorder.firstValue().get()).isEqualTo(GetBalanceResponse.newBuilder()
+        assertThat(recorder.value()).isEqualTo(GetBalanceResponse.newBuilder()
             .setAccountId(accountId.toString())
             .setBalance("1000")
             .setCurrency("VND")
             .build());
-        assertThat(recorder.getError()).isNull();
+        assertThat(recorder.error()).isNull();
     }
 
     @Test
@@ -48,18 +48,18 @@ class AccountGrpcServiceTest {
         AccountRecord account = new AccountRecord(accountId, UUID.randomUUID(), null, "VND", AccountKind.USER, AccountStatus.ACTIVE, 0, Instant.now());
         when(accountUseCases.lookup("receiver@example.test", null)).thenReturn(account);
 
-        StreamRecorder<LookupAccountResponse> recorder = StreamRecorder.create();
+        RecordingObserver<LookupAccountResponse> recorder = new RecordingObserver<>();
         service.lookupAccount(
             LookupAccountRequest.newBuilder().setEmail("receiver@example.test").build(),
             recorder
         );
 
-        assertThat(recorder.firstValue().get()).isEqualTo(LookupAccountResponse.newBuilder()
+        assertThat(recorder.value()).isEqualTo(LookupAccountResponse.newBuilder()
             .setAccountId(accountId.toString())
             .setStatus("ACTIVE")
             .setCurrency("VND")
             .build());
-        assertThat(recorder.getError()).isNull();
+        assertThat(recorder.error()).isNull();
     }
 
     @Test
@@ -67,14 +67,41 @@ class AccountGrpcServiceTest {
         when(accountUseCases.lookup("missing@example.test", null))
             .thenThrow(new DomainException("RECIPIENT_NOT_FOUND", "Recipient account was not found"));
 
-        StreamRecorder<LookupAccountResponse> recorder = StreamRecorder.create();
+        RecordingObserver<LookupAccountResponse> recorder = new RecordingObserver<>();
         service.lookupAccount(
             LookupAccountRequest.newBuilder().setEmail("missing@example.test").build(),
             recorder
         );
 
-        assertThat(recorder.getError()).isInstanceOf(StatusRuntimeException.class);
-        StatusRuntimeException error = (StatusRuntimeException) recorder.getError();
+        assertThat(recorder.error()).isInstanceOf(StatusRuntimeException.class);
+        StatusRuntimeException error = (StatusRuntimeException) recorder.error();
         assertThat(error.getStatus().getCode()).isEqualTo(Status.NOT_FOUND.getCode());
+    }
+
+    private static class RecordingObserver<T> implements StreamObserver<T> {
+        private T value;
+        private Throwable error;
+
+        @Override
+        public void onNext(T value) {
+            this.value = value;
+        }
+
+        @Override
+        public void onError(Throwable error) {
+            this.error = error;
+        }
+
+        @Override
+        public void onCompleted() {
+        }
+
+        T value() {
+            return value;
+        }
+
+        Throwable error() {
+            return error;
+        }
     }
 }

@@ -1,7 +1,6 @@
 plugins {
     java
     id("org.springframework.boot") version "3.3.5" apply false
-    id("io.spring.dependency-management") version "1.1.6" apply false
 }
 
 group = "com.ewallet"
@@ -22,13 +21,17 @@ subprojects {
     tasks.withType<JavaCompile>().configureEach {
         options.encoding = "UTF-8"
         options.release.set(17)
+        options.compilerArgs.addAll(listOf("-Xlint:deprecation", "-Xlint:unchecked"))
     }
 
     tasks.withType<Test>().configureEach {
         useJUnitPlatform()
+        jvmArgs("-Xshare:off")
     }
 
     dependencies {
+        "implementation"(platform(org.springframework.boot.gradle.plugin.SpringBootPlugin.BOM_COORDINATES))
+        "testImplementation"(platform(org.springframework.boot.gradle.plugin.SpringBootPlugin.BOM_COORDINATES))
         "testRuntimeOnly"("org.junit.platform:junit-platform-launcher:1.10.5")
     }
 }

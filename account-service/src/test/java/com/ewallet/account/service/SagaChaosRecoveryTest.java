@@ -141,8 +141,8 @@ class SagaChaosRecoveryTest {
         assertLedgerInvariants();
         assertThat(jdbc.queryForObject("SELECT count(*) FROM transaction_outbox WHERE published = FALSE", Integer.class)).isGreaterThan(0);
 
-        KafkaTemplate<String, String> kafkaTemplate = org.mockito.Mockito.mock(KafkaTemplate.class);
-        when(kafkaTemplate.send(any(ProducerRecord.class))).thenReturn(CompletableFuture.completedFuture(null));
+        KafkaTemplate<String, String> kafkaTemplate = mockKafkaTemplate();
+        when(kafkaTemplate.send(anyProducerRecord())).thenReturn(CompletableFuture.completedFuture(null));
         faultInjection.enableOnce(FaultInjection.AFTER_PUBLISH_BEFORE_MARK);
         new OutboxPublisher(store, kafkaTemplate, "wallet.events.v1", faultInjection).publishBatch();
 
@@ -250,6 +250,16 @@ class SagaChaosRecoveryTest {
             builder.header("Idempotency-Key", idempotencyKey);
         }
         return new Result(mvc.perform(builder), objectMapper);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static KafkaTemplate<String, String> mockKafkaTemplate() {
+        return org.mockito.Mockito.mock(KafkaTemplate.class);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static ProducerRecord<String, String> anyProducerRecord() {
+        return any(ProducerRecord.class);
     }
 
     private record Auth(String accessToken, String refreshToken, String userId, String accountId) {

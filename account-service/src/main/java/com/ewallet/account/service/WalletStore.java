@@ -5,6 +5,7 @@ import com.ewallet.account.model.AdminAccountView;
 import com.ewallet.account.model.AuditLogRecord;
 import com.ewallet.account.model.LedgerEntryRecord;
 import com.ewallet.account.model.OutboxRecord;
+import com.ewallet.account.model.PasswordResetOtpRecord;
 import com.ewallet.account.model.UserRecord;
 import com.ewallet.account.model.WalletTransaction;
 import com.ewallet.account.model.SupportCaseHandoff;
@@ -248,6 +249,49 @@ public class WalletStore {
         );
     }
 
+    public synchronized void createPasswordResetOtp(PasswordResetOtpRecord record) {
+        jdbc.update(
+            """
+                INSERT INTO password_reset_otps
+                    (id, user_id, identifier, otp_hash, attempts, expires_at, consumed_at, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+            record.id(),
+            record.userId(),
+            record.identifier(),
+            record.otpHash(),
+            record.attempts(),
+            Timestamp.from(record.expiresAt()),
+            record.consumedAt() != null ? Timestamp.from(record.consumedAt()) : null,
+            Timestamp.from(record.createdAt())
+        );
+    }
+
+    public Optional<PasswordResetOtpRecord> findLatestPasswordResetOtp(String identifier) {
+        if (identifier == null || identifier.isBlank()) {
+            return Optional.empty();
+        }
+        return queryOne(
+            """
+                SELECT *
+                FROM password_reset_otps
+                WHERE identifier = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+            passwordResetOtpMapper(),
+            normalizeIdentifier(identifier)
+        );
+    }
+
+    public synchronized void updatePasswordResetOtpAttempts(UUID otpId, int attempts) {
+        jdbc.update("UPDATE password_reset_otps SET attempts = ? WHERE id = ?", attempts, otpId);
+    }
+
+    public synchronized void consumePasswordResetOtp(UUID otpId, Instant consumedAt) {
+        jdbc.update("UPDATE password_reset_otps SET consumed_at = ? WHERE id = ?", Timestamp.from(consumedAt), otpId);
+    }
+
     public AccountRecord account(UUID id) {
         return queryOne("SELECT * FROM accounts WHERE id = ?", accountMapper(), id)
             .orElseThrow(() -> new DomainException("ACCOUNT_NOT_FOUND", "Account not found"));
@@ -270,6 +314,11 @@ public class WalletStore {
     public Optional<AccountRecord> lookupAccount(String email, String phone) {
         Optional<UserRecord> user = email != null ? findUserByEmail(email) : findUserByPhone(phone);
         return user.flatMap(value -> optionalUserAccount(value.id(), "VND"));
+    }
+
+    public String normalizeIdentifier(String identifier) {
+        String value = identifier.trim();
+        return value.contains("@") ? value.toLowerCase() : value;
     }
 
     public BigDecimal balance(UUID accountId) {
@@ -1329,6 +1378,19 @@ public class WalletStore {
             instant(rs, "created_at"),
             rs.getInt("failed_pin_attempts"),
             rs.getTimestamp("pin_locked_until") != null ? rs.getTimestamp("pin_locked_until").toInstant() : null
+        );
+    }
+
+    private RowMapper<PasswordResetOtpRecord> passwordResetOtpMapper() {
+        return (rs, rowNum) -> new PasswordResetOtpRecord(
+            uuid(rs, "id"),
+            uuid(rs, "user_id"),
+            rs.getString("identifier"),
+            rs.getString("otp_hash"),
+            rs.getInt("attempts"),
+            instant(rs, "expires_at"),
+            rs.getTimestamp("consumed_at") != null ? rs.getTimestamp("consumed_at").toInstant() : null,
+            instant(rs, "created_at")
         );
     }
 

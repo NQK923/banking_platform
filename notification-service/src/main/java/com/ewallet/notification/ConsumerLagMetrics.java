@@ -4,6 +4,9 @@ import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
+import java.util.Properties;
+import java.util.Set;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.PartitionInfo;
@@ -33,7 +36,7 @@ class ConsumerLagMetrics {
     }
 
     long lag() {
-        try (Consumer<String, String> consumer = consumerFactory.createConsumer(groupId, "lag-reader")) {
+        try (Consumer<String, String> consumer = consumerFactory.createConsumer(groupId, "lag-reader", "", new Properties())) {
             List<PartitionInfo> infos = consumer.partitionsFor(topic, Duration.ofSeconds(2));
             if (infos == null || infos.isEmpty()) {
                 return 0;
@@ -42,9 +45,10 @@ class ConsumerLagMetrics {
                 .map(info -> new TopicPartition(topic, info.partition()))
                 .toList();
             var endOffsets = consumer.endOffsets(partitions);
+            Map<TopicPartition, OffsetAndMetadata> committedOffsets = consumer.committed(Set.copyOf(partitions), Duration.ofSeconds(2));
             long lag = 0;
             for (TopicPartition partition : partitions) {
-                OffsetAndMetadata committed = consumer.committed(partition, Duration.ofSeconds(2));
+                OffsetAndMetadata committed = committedOffsets.get(partition);
                 long committedOffset = committed == null ? 0 : committed.offset();
                 lag += Math.max(0, endOffsets.getOrDefault(partition, 0L) - committedOffset);
             }

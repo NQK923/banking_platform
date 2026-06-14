@@ -21,7 +21,7 @@ class OutboxPublisherTest {
     @Test
     void publishesTraceparentWithOutboxEvent() {
         WalletStore store = org.mockito.Mockito.mock(WalletStore.class);
-        KafkaTemplate<String, String> kafkaTemplate = org.mockito.Mockito.mock(KafkaTemplate.class);
+        KafkaTemplate<String, String> kafkaTemplate = mockKafkaTemplate();
         UUID eventId = UUID.randomUUID();
         UUID aggregateId = UUID.randomUUID();
         UUID correlationId = UUID.randomUUID();
@@ -36,11 +36,11 @@ class OutboxPublisherTest {
             0,
             Instant.now()
         )));
-        when(kafkaTemplate.send(any(ProducerRecord.class))).thenReturn(CompletableFuture.completedFuture(null));
+        when(kafkaTemplate.send(anyProducerRecord())).thenReturn(CompletableFuture.completedFuture(null));
 
         new OutboxPublisher(store, kafkaTemplate, "wallet.events.v1", faultInjection).publishBatch();
 
-        ArgumentCaptor<ProducerRecord<String, String>> captor = ArgumentCaptor.forClass(ProducerRecord.class);
+        ArgumentCaptor<ProducerRecord<String, String>> captor = producerRecordCaptor();
         verify(kafkaTemplate).send(captor.capture());
         ProducerRecord<String, String> record = captor.getValue();
         assertThat(record.key()).isEqualTo(aggregateId.toString());
@@ -53,7 +53,7 @@ class OutboxPublisherTest {
     @Test
     void publishFailureBeforeMarkLeavesOutboxForRetry() {
         WalletStore store = org.mockito.Mockito.mock(WalletStore.class);
-        KafkaTemplate<String, String> kafkaTemplate = org.mockito.Mockito.mock(KafkaTemplate.class);
+        KafkaTemplate<String, String> kafkaTemplate = mockKafkaTemplate();
         FaultInjection faultInjection = new FaultInjection("");
         OutboxRecord event = new OutboxRecord(
             UUID.randomUUID(),
@@ -66,7 +66,7 @@ class OutboxPublisherTest {
             Instant.now()
         );
         when(store.unpublishedOutbox(50)).thenReturn(List.of(event));
-        when(kafkaTemplate.send(any(ProducerRecord.class))).thenReturn(CompletableFuture.completedFuture(null));
+        when(kafkaTemplate.send(anyProducerRecord())).thenReturn(CompletableFuture.completedFuture(null));
 
         faultInjection.enable(FaultInjection.AFTER_PUBLISH_BEFORE_MARK);
         new OutboxPublisher(store, kafkaTemplate, "wallet.events.v1", faultInjection).publishBatch();
@@ -77,7 +77,22 @@ class OutboxPublisherTest {
         faultInjection.clear();
         new OutboxPublisher(store, kafkaTemplate, "wallet.events.v1", faultInjection).publishBatch();
 
-        verify(kafkaTemplate, times(2)).send(any(ProducerRecord.class));
+        verify(kafkaTemplate, times(2)).send(anyProducerRecord());
         verify(store).markOutboxPublished(event.id());
+    }
+
+    @SuppressWarnings("unchecked")
+    private static KafkaTemplate<String, String> mockKafkaTemplate() {
+        return org.mockito.Mockito.mock(KafkaTemplate.class);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static ProducerRecord<String, String> anyProducerRecord() {
+        return any(ProducerRecord.class);
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static ArgumentCaptor<ProducerRecord<String, String>> producerRecordCaptor() {
+        return ArgumentCaptor.forClass((Class) ProducerRecord.class);
     }
 }

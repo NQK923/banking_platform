@@ -33,7 +33,7 @@ public class ApiExceptionHandler {
     private HttpStatus status(String code) {
         return switch (code) {
             case "AUTH_INVALID", "AUTH_EXPIRED" -> HttpStatus.UNAUTHORIZED;
-            case "PIN_INVALID", "PIN_LOCKED", "FORBIDDEN" -> HttpStatus.FORBIDDEN;
+            case "PIN_INVALID", "PIN_LOCKED", "OTP_REQUIRED", "OTP_INVALID", "OTP_EXPIRED", "OTP_LOCKED", "FORBIDDEN" -> HttpStatus.FORBIDDEN;
             case "RECIPIENT_NOT_FOUND", "ACCOUNT_NOT_FOUND", "TRANSACTION_NOT_FOUND", "RISK_EVALUATION_NOT_FOUND",
                 "SUPPORT_SESSION_NOT_FOUND", "SUPPORT_CASE_NOT_FOUND" -> HttpStatus.NOT_FOUND;
             case "RECIPIENT_SUSPENDED", "INSUFFICIENT_FUNDS", "CANCEL_NOT_ALLOWED", "RISK_REVIEW_NOT_REQUIRED", "RISK_REJECT_NOT_ALLOWED" -> HttpStatus.CONFLICT;

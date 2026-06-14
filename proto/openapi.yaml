@@ -23,6 +23,23 @@ paths:
       responses:
         "200":
           description: Rotated tokens
+  /api/auth/password/otp:
+    post:
+      operationId: requestPasswordResetOtp
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [identifier]
+              properties:
+                identifier:
+                  type: string
+                  description: Registered email or phone number. The OTP is sent to the account email.
+      responses:
+        "200":
+          description: OTP request accepted. Response does not disclose whether the identifier exists.
   /api/auth/password/reset:
     post:
       operationId: resetPassword
@@ -32,29 +49,29 @@ paths:
           application/json:
             schema:
               type: object
-              required: [identifier, pin, newPassword]
+              required: [identifier, otp, newPassword]
               properties:
                 identifier:
                   type: string
                   description: Registered email or phone number
-                pin:
+                otp:
                   type: string
                   pattern: "^\\d{6}$"
-                  description: Transaction PIN used as the v1 local recovery factor
+                  description: Password reset OTP sent to the account email
                 newPassword:
                   type: string
                   minLength: 6
       responses:
         "200":
           description: Password reset; user can log in with the new password
-        "401":
-          description: Unknown email/phone
+        "400":
+          description: Missing/invalid new password
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
         "403":
-          description: Invalid or locked transaction PIN
+          description: Invalid, expired, locked, or missing OTP
           content:
             application/json:
               schema:

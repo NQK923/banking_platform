@@ -30,5 +30,15 @@ banking:
   jwt-secret: ${BANKING_JWT_SECRET}
   seed-admin-password: ${BANKING_SEED_ADMIN_PASSWORD}
   seed-admin-pin: ${BANKING_SEED_ADMIN_PIN}
+  password-reset:
+    otp-ttl-minutes: ${BANKING_PASSWORD_RESET_OTP_TTL_MINUTES:10}
+  mail:
+    enabled: ${BANKING_MAIL_ENABLED:false}
+    from: ${BANKING_MAIL_FROM:no-reply@ewallet.local}
+    smtp-host: ${BANKING_MAIL_SMTP_HOST:}
+    smtp-port: ${BANKING_MAIL_SMTP_PORT:587}
+    smtp-username: ${BANKING_MAIL_SMTP_USERNAME:}
+    smtp-password: ${BANKING_MAIL_SMTP_PASSWORD:}
+    smtp-starttls: ${BANKING_MAIL_SMTP_STARTTLS:true}
   grpc:
     port: 9090

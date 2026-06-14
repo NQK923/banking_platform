@@ -3,6 +3,7 @@ package com.ewallet.account.web;
 import com.ewallet.account.service.AuthService;
 import com.ewallet.account.service.AuthService.AuthResponse;
 import com.ewallet.account.service.AuthService.LoginRequest;
+import com.ewallet.account.service.AuthService.PasswordResetOtpRequest;
 import com.ewallet.account.service.AuthService.RefreshRequest;
 import com.ewallet.account.service.AuthService.RegisterRequest;
 import com.ewallet.account.service.AuthService.ResetPasswordRequest;
@@ -33,6 +34,11 @@ public class AuthController {
     @PostMapping("/refresh")
     AuthResponse refresh(@RequestBody RefreshRequest request) {
         return authService.refresh(request);
+    }
+
+    @PostMapping("/password/otp")
+    void requestPasswordResetOtp(@RequestBody PasswordResetOtpRequest request) {
+        authService.requestPasswordResetOtp(request);
     }
 
     @PostMapping("/password/reset")

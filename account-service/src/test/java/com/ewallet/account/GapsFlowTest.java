@@ -6,14 +6,21 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.ewallet.common.TransactionStatus;
+import com.ewallet.account.service.PasswordResetEmailSender;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.time.Instant;
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -57,9 +64,13 @@ class GapsFlowTest {
     @Autowired
     com.ewallet.account.service.FaultInjection faultInjection;
 
+    @Autowired
+    RecordingPasswordResetEmailSender passwordResetEmailSender;
+
     @org.junit.jupiter.api.AfterEach
     void cleanFaults() {
         faultInjection.clear();
+        passwordResetEmailSender.clear();
     }
 
     @Test
@@ -115,13 +126,23 @@ class GapsFlowTest {
     }
 
     @Test
-    void testResetPasswordWithTransactionPin() throws Exception {
+    void testResetPasswordWithEmailOtp() throws Exception {
         register("reset-user@example.test", "+84000000920", "123456");
+
+        postJson(
+            "/api/auth/password/otp",
+            null,
+            "{\"identifier\":\"reset-user@example.test\"}",
+            null
+        ).andExpect(status().isOk());
+
+        assertThat(passwordResetEmailSender.sent).hasSize(1);
+        assertThat(passwordResetEmailSender.sent.get(0).to()).isEqualTo("reset-user@example.test");
 
         postJson(
             "/api/auth/password/reset",
             null,
-            "{\"identifier\":\"reset-user@example.test\",\"pin\":\"123456\",\"newPassword\":\"NewPassword123!\"}",
+            "{\"identifier\":\"reset-user@example.test\",\"otp\":\"" + passwordResetEmailSender.sent.get(0).otp() + "\",\"newPassword\":\"NewPassword123!\"}",
             null
         ).andExpect(status().isOk());
 
@@ -133,16 +154,32 @@ class GapsFlowTest {
         ).andExpect(status().isUnauthorized());
 
         login("reset-user@example.test", "NewPassword123!");
-    }
-
-    @Test
-    void testResetPasswordRejectsWrongPin() throws Exception {
-        register("reset-wrong-pin@example.test", "+84000000921", "123456");
 
         postJson(
             "/api/auth/password/reset",
             null,
-            "{\"identifier\":\"reset-wrong-pin@example.test\",\"pin\":\"999999\",\"newPassword\":\"NewPassword123!\"}",
+            "{\"identifier\":\"reset-user@example.test\",\"otp\":\"" + passwordResetEmailSender.sent.get(0).otp() + "\",\"newPassword\":\"AnotherPassword123!\"}",
+            null
+        ).andExpect(status().isForbidden());
+    }
+
+    @Test
+    void testResetPasswordRejectsWrongOtp() throws Exception {
+        register("reset-wrong-pin@example.test", "+84000000921", "123456");
+
+        postJson(
+            "/api/auth/password/otp",
+            null,
+            "{\"identifier\":\"reset-wrong-pin@example.test\"}",
+            null
+        ).andExpect(status().isOk());
+
+        assertThat(passwordResetEmailSender.sent).hasSize(1);
+
+        postJson(
+            "/api/auth/password/reset",
+            null,
+            "{\"identifier\":\"reset-wrong-pin@example.test\",\"otp\":\"999999\",\"newPassword\":\"NewPassword123!\"}",
             null
         ).andExpect(status().isForbidden());
 
@@ -154,6 +191,18 @@ class GapsFlowTest {
         ).andExpect(status().isUnauthorized());
 
         login("reset-wrong-pin@example.test", "Password123!");
+    }
+
+    @Test
+    void testPasswordResetOtpRequestDoesNotRevealUnknownIdentifier() throws Exception {
+        postJson(
+            "/api/auth/password/otp",
+            null,
+            "{\"identifier\":\"missing-reset@example.test\"}",
+            null
+        ).andExpect(status().isOk());
+
+        assertThat(passwordResetEmailSender.sent).isEmpty();
     }
 
     @Test
@@ -357,6 +406,31 @@ class GapsFlowTest {
     }
 
     private record Auth(String accessToken, String refreshToken, String userId, String accountId) {
+    }
+
+    @TestConfiguration
+    static class PasswordResetEmailSenderTestConfig {
+        @Bean
+        @Primary
+        RecordingPasswordResetEmailSender recordingPasswordResetEmailSender() {
+            return new RecordingPasswordResetEmailSender();
+        }
+    }
+
+    static class RecordingPasswordResetEmailSender implements PasswordResetEmailSender {
+        final List<SentOtp> sent = new ArrayList<>();
+
+        @Override
+        public void sendPasswordResetOtp(String to, String maskedIdentifier, String otp, Instant expiresAt) {
+            sent.add(new SentOtp(to, maskedIdentifier, otp, expiresAt));
+        }
+
+        void clear() {
+            sent.clear();
+        }
+    }
+
+    private record SentOtp(String to, String maskedIdentifier, String otp, Instant expiresAt) {
     }
 
     private record Result(org.springframework.test.web.servlet.ResultActions actions, ObjectMapper objectMapper) {
