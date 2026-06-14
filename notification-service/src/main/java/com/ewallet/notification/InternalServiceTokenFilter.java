@@ -20,11 +20,11 @@ class InternalServiceTokenFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
         throws ServletException, IOException {
-        if (request.getRequestURI().startsWith("/api/admin/dlq")
-            && !token.isBlank()
-            && !token.equals(request.getHeader("X-Service-Token"))) {
-            response.sendError(HttpServletResponse.SC_FORBIDDEN, "Invalid internal service token");
-            return;
+        if (request.getRequestURI().startsWith("/api/admin/dlq")) {
+            if (token.isBlank() || !token.equals(request.getHeader("X-Service-Token"))) {
+                response.sendError(HttpServletResponse.SC_FORBIDDEN, "Invalid internal service token");
+                return;
+            }
         }
         filterChain.doFilter(request, response);
     }

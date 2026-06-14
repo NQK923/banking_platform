@@ -13,6 +13,7 @@ import com.ewallet.common.DomainException;
 import com.ewallet.common.Money;
 import com.ewallet.common.TransactionStatus;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -312,8 +313,18 @@ public class TransferUseCases {
         return store.findTransaction(id).orElseThrow(() -> new DomainException("TRANSACTION_NOT_FOUND", "Transaction not found"));
     }
 
-    public java.util.List<WalletTransaction> list() {
-        return store.transactions();
+    public WalletTransaction get(UUID id, AuthenticatedUser user) {
+        WalletTransaction transaction = get(id);
+        requireTransactionAccess(transaction, user);
+        return transaction;
+    }
+
+    public List<WalletTransaction> list(AuthenticatedUser user) {
+        requireAuthenticated(user);
+        if (user.roles().contains("ROLE_ADMIN")) {
+            return store.transactions();
+        }
+        return store.accountTransactions(user.accountId());
     }
 
     public WalletTransaction cancel(UUID id, AuthenticatedUser user) {
@@ -380,6 +391,23 @@ public class TransferUseCases {
     private void requireAdmin(AuthenticatedUser user) {
         if (user == null || !user.roles().contains("ROLE_ADMIN")) {
             throw new DomainException("FORBIDDEN", "Admin actor is required");
+        }
+    }
+
+    private void requireAuthenticated(AuthenticatedUser user) {
+        if (user == null) {
+            throw new DomainException("FORBIDDEN", "User session is required");
+        }
+    }
+
+    private void requireTransactionAccess(WalletTransaction transaction, AuthenticatedUser user) {
+        requireAuthenticated(user);
+        if (user.roles().contains("ROLE_ADMIN")) {
+            return;
+        }
+        if (user.accountId() == null
+            || (!user.accountId().equals(transaction.senderId()) && !user.accountId().equals(transaction.receiverId()))) {
+            throw new DomainException("FORBIDDEN", "Cannot access another account's transaction");
         }
     }
 

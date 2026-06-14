@@ -32,6 +32,8 @@ banking:
   seed-admin-pin: ${BANKING_SEED_ADMIN_PIN}
   password-reset:
     otp-ttl-minutes: ${BANKING_PASSWORD_RESET_OTP_TTL_MINUTES:10}
+  internal-service-token: ${INTERNAL_SERVICE_TOKEN:}
+  notification-service-url: ${NOTIFICATION_SERVICE_URL:http://localhost:8083}
   mail:
     enabled: ${BANKING_MAIL_ENABLED:false}
     from: ${BANKING_MAIL_FROM:no-reply@ewallet.local}

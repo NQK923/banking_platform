@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import com.ewallet.account.model.UserRecord;
+import com.ewallet.account.security.AuthenticatedUser;
 import com.ewallet.account.web.PaginatedHistoryResponse;
 import org.springframework.stereotype.Service;
 
@@ -28,8 +29,17 @@ public class AccountUseCases {
         return store.account(id);
     }
 
-    public AccountDetailsResponse accountDetails(UUID id) {
+    public AccountDetailsResponse accountDetails(UUID id, AuthenticatedUser actor) {
         AccountRecord account = store.account(id);
+        requireAccountAccess(account, actor);
+        return accountDetails(account);
+    }
+
+    public AccountDetailsResponse accountDetails(UUID id) {
+        return accountDetails(store.account(id));
+    }
+
+    private AccountDetailsResponse accountDetails(AccountRecord account) {
         UserRecord user = account.userId() == null
             ? null
             : store.findUser(account.userId()).orElse(null);
@@ -47,8 +57,18 @@ public class AccountUseCases {
         );
     }
 
-    public BalanceResponse balance(UUID accountId) {
+    public BalanceResponse balance(UUID accountId, AuthenticatedUser actor) {
         AccountRecord account = store.account(accountId);
+        requireAccountAccess(account, actor);
+        return balance(account);
+    }
+
+    public BalanceResponse balance(UUID accountId) {
+        return balance(store.account(accountId));
+    }
+
+    private BalanceResponse balance(AccountRecord account) {
+        UUID accountId = account.id();
         return new BalanceResponse(accountId.toString(), new Money(store.balance(accountId), account.currency()).asString(), account.currency());
     }
 
@@ -61,9 +81,9 @@ public class AccountUseCases {
         return account;
     }
 
-    public MovementResponse deposit(UUID accountId, MoneyRequest request, UUID actorId) {
-        UUID actor = requireAdminActor(actorId);
+    public MovementResponse deposit(UUID accountId, MoneyRequest request, AuthenticatedUser actor) {
         AccountRecord account = store.account(accountId);
+        requireOwnAccountOrAdmin(account, actor, "Cannot deposit to another account");
         Money amount = Money.of(request.amount(), account.currency());
         UUID journalId = UUID.randomUUID();
         store.applyBalancedJournalAndAudit(
@@ -76,32 +96,31 @@ public class AccountUseCases {
             "ACCOUNT",
             accountId,
             "MoneyDeposited",
-            "ADMIN",
-            actor,
+            isAdmin(actor) ? "ADMIN" : "USER",
+            actor.userId(),
             Map.of("amount", amount.asString()),
             journalId
         );
-        return new MovementResponse(journalId.toString(), balance(accountId));
+        return new MovementResponse(journalId.toString(), balance(account));
     }
 
-    public MovementResponse withdraw(UUID accountId, MoneyRequest request, UUID actorId) {
-        UUID actor = requireAdminActor(actorId);
+    public MovementResponse withdraw(UUID accountId, MoneyRequest request, AuthenticatedUser actor) {
         AccountRecord account = store.account(accountId);
-        
-        UserRecord user = store.findUser(actorId)
+        requireAuthenticated(actor);
+        UserRecord user = store.findUser(actor.userId())
             .orElseThrow(() -> new DomainException("AUTH_INVALID", "Unknown user"));
 
         if (!user.roles().contains("ROLE_ADMIN")) {
-            if (!account.userId().equals(actorId)) {
+            if (!account.userId().equals(actor.userId())) {
                 throw new DomainException("FORBIDDEN", "Cannot withdraw from another account");
             }
             if (request.pin() == null || request.pin().isBlank()) {
                 throw new DomainException("PIN_INVALID", "Transaction PIN is required");
             }
-            authService.verifyPin(actorId, request.pin());
+            authService.verifyPin(actor.userId(), request.pin());
         } else {
             if (request.pin() != null && !request.pin().isBlank()) {
-                authService.verifyPin(actorId, request.pin());
+                authService.verifyPin(actor.userId(), request.pin());
             }
         }
 
@@ -117,26 +136,47 @@ public class AccountUseCases {
             "ACCOUNT",
             accountId,
             "MoneyWithdrawn",
-            "ADMIN",
-            actor,
+            isAdmin(actor) ? "ADMIN" : "USER",
+            actor.userId(),
             Map.of("amount", amount.asString()),
             journalId
         );
-        return new MovementResponse(journalId.toString(), balance(accountId));
+        return new MovementResponse(journalId.toString(), balance(account));
     }
 
-    private UUID requireAdminActor(UUID actorId) {
-        if (actorId == null) {
-            throw new DomainException("FORBIDDEN", "Admin actor is required");
+    private void requireAuthenticated(AuthenticatedUser actor) {
+        if (actor == null) {
+            throw new DomainException("FORBIDDEN", "User session is required");
         }
-        return actorId;
     }
 
-    public List<WalletTransaction> history(UUID accountId) {
+    private boolean isAdmin(AuthenticatedUser actor) {
+        return actor != null && actor.roles().contains("ROLE_ADMIN");
+    }
+
+    private void requireAccountAccess(AccountRecord account, AuthenticatedUser actor) {
+        requireOwnAccountOrAdmin(account, actor, "Cannot access another account");
+    }
+
+    private void requireOwnAccountOrAdmin(AccountRecord account, AuthenticatedUser actor, String message) {
+        requireAuthenticated(actor);
+        if (isAdmin(actor)) {
+            return;
+        }
+        if (account.userId() == null || !account.userId().equals(actor.userId())) {
+            throw new DomainException("FORBIDDEN", message);
+        }
+    }
+
+    public List<WalletTransaction> history(UUID accountId, AuthenticatedUser actor) {
+        AccountRecord account = store.account(accountId);
+        requireAccountAccess(account, actor);
         return store.accountTransactions(accountId);
     }
 
-    public PaginatedHistoryResponse historyPaginated(UUID accountId, int page, Integer sizeParam) {
+    public PaginatedHistoryResponse historyPaginated(UUID accountId, int page, Integer sizeParam, AuthenticatedUser actor) {
+        AccountRecord account = store.account(accountId);
+        requireAccountAccess(account, actor);
         int size = sizeParam == null ? 10 : sizeParam;
         if (size <= 0) size = 10;
         if (size > 100) size = 100;
@@ -155,7 +195,9 @@ public class AccountUseCases {
         return new PaginatedHistoryResponse(items, page, size, totalElements, totalPages);
     }
 
-    public List<LedgerEntryRecord> ledger(UUID accountId) {
+    public List<LedgerEntryRecord> ledger(UUID accountId, AuthenticatedUser actor) {
+        AccountRecord account = store.account(accountId);
+        requireAccountAccess(account, actor);
         return store.ledger(accountId);
     }
 

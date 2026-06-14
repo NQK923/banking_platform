@@ -182,16 +182,32 @@ public class SupportChatUseCases {
         return new HandoffResponse(handoff.id(), session.id(), handoff.status(), "Your case has been sent to support.");
     }
 
-    public PageResponse<SupportCaseSummary> listCases(UUID actorId, int page, int size, String status, String topic) {
+    public PageResponse<SupportCaseSummary> listCases(UUID actorId, int page, int size, String status, String topic, String q) {
         requireAdminActor(actorId);
         String statusFilter = normalize(status);
         String topicFilter = normalize(topic);
+        String query = q == null ? "" : q.trim().toLowerCase();
         List<SupportCaseSummary> values = store.supportCases().stream()
             .map(this::toCaseSummary)
             .filter(item -> statusFilter.isBlank() || item.status().equals(statusFilter))
             .filter(item -> topicFilter.isBlank() || topicFilter.equals(item.topic()))
+            .filter(item -> query.isBlank() || matchesSupportCaseQuery(item, query))
             .toList();
         return page(values, page, size);
+    }
+
+    private boolean matchesSupportCaseQuery(SupportCaseSummary item, String query) {
+        return item.caseId().toString().contains(query)
+            || item.sessionId().toString().contains(query)
+            || item.userId().toString().contains(query)
+            || containsUuid(item.relatedTransactionId(), query)
+            || containsUuid(item.assignedAdminId(), query)
+            || item.status().toLowerCase().contains(query)
+            || item.topic().toLowerCase().contains(query);
+    }
+
+    private boolean containsUuid(UUID value, String query) {
+        return value != null && value.toString().contains(query);
     }
 
     public SupportCaseDetail getCase(UUID actorId, UUID caseId) {

@@ -41,13 +41,13 @@ public class AccountController {
     }
 
     @GetMapping("/{id}")
-    AccountDetailsResponse get(@PathVariable UUID id) {
-        return accountUseCases.accountDetails(id);
+    AccountDetailsResponse get(@PathVariable UUID id, @AuthenticationPrincipal AuthenticatedUser user) {
+        return accountUseCases.accountDetails(id, user);
     }
 
     @GetMapping("/{id}/balance")
-    BalanceResponse balance(@PathVariable UUID id) {
-        return accountUseCases.balance(id);
+    BalanceResponse balance(@PathVariable UUID id, @AuthenticationPrincipal AuthenticatedUser user) {
+        return accountUseCases.balance(id, user);
     }
 
     @GetMapping("/lookup")
@@ -57,24 +57,25 @@ public class AccountController {
 
     @PostMapping("/{id}/deposit")
     MovementResponse deposit(@PathVariable UUID id, @RequestBody MoneyRequest request, @AuthenticationPrincipal AuthenticatedUser user) {
-        return accountUseCases.deposit(id, request, user == null ? null : user.userId());
+        return accountUseCases.deposit(id, request, user);
     }
 
     @PostMapping("/{id}/withdraw")
     MovementResponse withdraw(@PathVariable UUID id, @RequestBody MoneyRequest request, @AuthenticationPrincipal AuthenticatedUser user) {
-        return accountUseCases.withdraw(id, request, user == null ? null : user.userId());
+        return accountUseCases.withdraw(id, request, user);
     }
 
     @GetMapping("/{id}/history")
     ResponseEntity<?> history(
         @PathVariable UUID id,
         @RequestParam(required = false) Integer page,
-        @RequestParam(required = false) Integer size
+        @RequestParam(required = false) Integer size,
+        @AuthenticationPrincipal AuthenticatedUser user
     ) {
         if (page == null) {
-            return ResponseEntity.ok(accountUseCases.history(id));
+            return ResponseEntity.ok(accountUseCases.history(id, user));
         }
-        return ResponseEntity.ok(accountUseCases.historyPaginated(id, page, size));
+        return ResponseEntity.ok(accountUseCases.historyPaginated(id, page, size, user));
     }
 
     @PostMapping("/pin/change")
@@ -92,7 +93,7 @@ public class AccountController {
     }
 
     @GetMapping("/{id}/ledger")
-    List<LedgerEntryRecord> ledger(@PathVariable UUID id) {
-        return accountUseCases.ledger(id);
+    List<LedgerEntryRecord> ledger(@PathVariable UUID id, @AuthenticationPrincipal AuthenticatedUser user) {
+        return accountUseCases.ledger(id, user);
     }
 }

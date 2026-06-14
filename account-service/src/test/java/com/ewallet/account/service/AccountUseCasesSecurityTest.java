@@ -8,7 +8,7 @@ import org.junit.jupiter.api.Test;
 
 class AccountUseCasesSecurityTest {
     @Test
-    void mockDepositRequiresAdminActor() {
+    void mockDepositRequiresUserSession() {
         AccountUseCases useCases = new AccountUseCases(
             org.mockito.Mockito.mock(WalletStore.class),
             org.mockito.Mockito.mock(AuthService.class)
@@ -16,11 +16,11 @@ class AccountUseCasesSecurityTest {
 
         assertThatThrownBy(() -> useCases.deposit(UUID.randomUUID(), new AccountUseCases.MoneyRequest("100", null), null))
             .isInstanceOf(DomainException.class)
-            .hasMessageContaining("Admin actor is required");
+            .hasMessageContaining("User session is required");
     }
 
     @Test
-    void mockWithdrawRequiresAdminActor() {
+    void mockWithdrawRequiresUserSession() {
         AccountUseCases useCases = new AccountUseCases(
             org.mockito.Mockito.mock(WalletStore.class),
             org.mockito.Mockito.mock(AuthService.class)
@@ -28,6 +28,6 @@ class AccountUseCasesSecurityTest {
 
         assertThatThrownBy(() -> useCases.withdraw(UUID.randomUUID(), new AccountUseCases.MoneyRequest("100", null), null))
             .isInstanceOf(DomainException.class)
-            .hasMessageContaining("Admin actor is required");
+            .hasMessageContaining("User session is required");
     }
 }

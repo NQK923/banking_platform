@@ -84,9 +84,10 @@ public class SupportChatController {
         @RequestParam(defaultValue = "0") int page,
         @RequestParam(defaultValue = "20") int size,
         @RequestParam(required = false) String status,
-        @RequestParam(required = false) String topic
+        @RequestParam(required = false) String topic,
+        @RequestParam(required = false) String q
     ) {
-        return supportChatUseCases.listCases(user == null ? null : user.userId(), page, size, status, topic);
+        return supportChatUseCases.listCases(user == null ? null : user.userId(), page, size, status, topic, q);
     }
 
     @GetMapping("/api/admin/support/cases/{caseId}")

@@ -20,7 +20,11 @@ class InternalServiceTokenFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
         throws ServletException, IOException {
-        if (!token.isBlank() && !token.equals(request.getHeader("X-Service-Token"))) {
+        if (request.getRequestURI().startsWith("/actuator/health")) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+        if (token.isBlank() || !token.equals(request.getHeader("X-Service-Token"))) {
             response.sendError(HttpServletResponse.SC_FORBIDDEN, "Invalid internal service token");
             return;
         }

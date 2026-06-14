@@ -8,21 +8,51 @@ paths:
   /api/auth/register:
     post:
       operationId: register
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
       responses:
         "200":
           description: Registered user and wallet
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
   /api/auth/login:
     post:
       operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
       responses:
         "200":
           description: Access and refresh tokens
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
   /api/auth/refresh:
     post:
       operationId: refresh
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RefreshRequest"
       responses:
         "200":
           description: Rotated tokens
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
   /api/auth/password/otp:
     post:
       operationId: requestPasswordResetOtp
@@ -476,6 +506,11 @@ paths:
           in: query
           schema:
             type: string
+        - name: q
+          in: query
+          description: Search support cases by case, session, user, related transaction, assignee, status, or topic
+          schema:
+            type: string
       responses:
         "200":
           description: Paginated support cases
@@ -546,6 +581,66 @@ components:
           type: string
         traceId:
           type: string
+    RegisterRequest:
+      type: object
+      required: [email, password, pin]
+      properties:
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+          nullable: true
+        password:
+          type: string
+          minLength: 6
+          writeOnly: true
+        pin:
+          type: string
+          pattern: "^\\d{6}$"
+          writeOnly: true
+        currency:
+          type: string
+          default: VND
+    LoginRequest:
+      type: object
+      required: [identifier, password]
+      properties:
+        identifier:
+          type: string
+          description: Registered email or phone number
+        password:
+          type: string
+          writeOnly: true
+    RefreshRequest:
+      type: object
+      required: [userId, refreshToken]
+      properties:
+        userId:
+          type: string
+          format: uuid
+        refreshToken:
+          type: string
+          writeOnly: true
+    AuthResponse:
+      type: object
+      required: [accessToken, refreshToken, userId, roles]
+      properties:
+        accessToken:
+          type: string
+        refreshToken:
+          type: string
+        userId:
+          type: string
+          format: uuid
+        accountId:
+          type: string
+          format: uuid
+          nullable: true
+        roles:
+          type: array
+          items:
+            type: string
     MoneyString:
       type: string
       pattern: "^-?[0-9]+(\\.[0-9]+)?$"

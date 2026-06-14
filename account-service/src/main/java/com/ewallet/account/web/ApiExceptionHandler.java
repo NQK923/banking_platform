@@ -9,9 +9,13 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
+    private static final Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);
+
     @ExceptionHandler(DomainException.class)
     ResponseEntity<ErrorResponse> domain(DomainException ex, HttpServletRequest request) {
         return ResponseEntity.status(status(ex.code()))
@@ -26,8 +30,10 @@ public class ApiExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     ResponseEntity<ErrorResponse> unexpected(Exception ex, HttpServletRequest request) {
+        String traceId = traceId(request);
+        log.error("Unhandled API exception traceId={}", traceId, ex);
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-            .body(new ErrorResponse("INTERNAL", ex.getMessage(), traceId(request)));
+            .body(new ErrorResponse("INTERNAL", "Internal server error", traceId));
     }
 
     private HttpStatus status(String code) {
@@ -40,6 +46,7 @@ public class ApiExceptionHandler {
             case "CURRENCY_MISMATCH", "INVALID_AMOUNT", "SELF_TRANSFER", "IDEMPOTENCY_KEY_REQUIRED", "IDEMPOTENCY_PAYLOAD_MISMATCH",
                 "RISK_EVALUATION_REQUIRED", "RISK_EVALUATION_EXPIRED", "RISK_TRANSACTION_NOT_FOUND",
                 "SUPPORT_MESSAGE_REQUIRED", "SUPPORT_RESPONSE_POLICY_VIOLATION" -> HttpStatus.UNPROCESSABLE_ENTITY;
+            case "DLQ_PROXY_FAILED" -> HttpStatus.BAD_GATEWAY;
             default -> HttpStatus.BAD_REQUEST;
         };
     }

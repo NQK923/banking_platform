@@ -206,6 +206,74 @@ class GapsFlowTest {
     }
 
     @Test
+    void refreshWithoutUserIdReturnsUnauthorizedInsteadOfInternalError() throws Exception {
+        Auth user = register("refresh-user@example.test", "+84000000929", "123456");
+
+        JsonNode response = postJson(
+            "/api/auth/refresh",
+            null,
+            "{\"refreshToken\":\"" + user.refreshToken() + "\"}",
+            null
+        ).andExpect(status().isUnauthorized()).andReturnJson();
+
+        assertThat(response.get("code").asText()).isEqualTo("AUTH_INVALID");
+    }
+
+    @Test
+    void userCannotReadOrFundAnotherAccount() throws Exception {
+        Auth owner = register("account-owner@example.test", "+84000000930", "123456");
+        Auth other = register("account-other@example.test", "+84000000931", "123456");
+        String admin = login("admin@local.test", "Admin123!").accessToken();
+
+        postJson("/api/accounts/" + owner.accountId() + "/deposit", owner.accessToken(), "{\"amount\":\"10\"}", null)
+            .andExpect(status().isOk());
+
+        mvc.perform(get("/api/accounts/" + owner.accountId()).header("Authorization", "Bearer " + other.accessToken()))
+            .andExpect(status().isForbidden());
+        mvc.perform(get("/api/accounts/" + owner.accountId() + "/balance").header("Authorization", "Bearer " + other.accessToken()))
+            .andExpect(status().isForbidden());
+        mvc.perform(get("/api/accounts/" + owner.accountId() + "/history").header("Authorization", "Bearer " + other.accessToken()))
+            .andExpect(status().isForbidden());
+        mvc.perform(get("/api/accounts/" + owner.accountId() + "/ledger").header("Authorization", "Bearer " + other.accessToken()))
+            .andExpect(status().isForbidden());
+        postJson("/api/accounts/" + owner.accountId() + "/deposit", other.accessToken(), "{\"amount\":\"10\"}", null)
+            .andExpect(status().isForbidden());
+
+        JsonNode adminView = getJson("/api/accounts/" + owner.accountId() + "/balance", admin);
+        assertThat(adminView.get("balance").asText()).isEqualTo("10");
+    }
+
+    @Test
+    void userCannotReadUnrelatedTransactionOrListAllTransactions() throws Exception {
+        Auth sender = register("tx-owner-sender@example.test", "+84000000932", "123456");
+        Auth receiver = register("tx-owner-receiver@example.test", "+84000000933", "123456");
+        Auth unrelated = register("tx-owner-unrelated@example.test", "+84000000934", "123456");
+        String admin = login("admin@local.test", "Admin123!").accessToken();
+
+        postJson("/api/accounts/" + sender.accountId() + "/deposit", admin, "{\"amount\":\"500\"}", null)
+            .andExpect(status().isOk());
+
+        JsonNode transfer = postJson(
+            "/api/transactions/transfer",
+            sender.accessToken(),
+            "{\"recipientEmail\":\"tx-owner-receiver@example.test\",\"amount\":\"100\",\"idempotencyKey\":\""
+                + UUID.randomUUID() + "\",\"pin\":\"123456\"}",
+            null
+        ).andExpect(status().isOk()).andReturnJson();
+        String txId = transfer.get("id").asText();
+
+        getJson("/api/transactions/" + txId, sender.accessToken());
+        getJson("/api/transactions/" + txId, receiver.accessToken());
+        mvc.perform(get("/api/transactions/" + txId).header("Authorization", "Bearer " + unrelated.accessToken()))
+            .andExpect(status().isForbidden());
+
+        JsonNode unrelatedList = getJson("/api/transactions", unrelated.accessToken());
+        assertThat(unrelatedList).isEmpty();
+        JsonNode senderList = getJson("/api/transactions", sender.accessToken());
+        assertThat(senderList).hasSize(1);
+    }
+
+    @Test
     void testWithdrawPinVerification() throws Exception {
         Auth user = register("withdrawuser@example.test", "+84000000904", "123456");
         String admin = login("admin@local.test", "Admin123!").accessToken();

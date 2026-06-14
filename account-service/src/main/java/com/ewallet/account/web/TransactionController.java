@@ -35,13 +35,13 @@ public class TransactionController {
     }
 
     @GetMapping("/{id}")
-    WalletTransaction get(@PathVariable UUID id) {
-        return transferUseCases.get(id);
+    WalletTransaction get(@PathVariable UUID id, @AuthenticationPrincipal AuthenticatedUser user) {
+        return transferUseCases.get(id, user);
     }
 
     @GetMapping
-    List<WalletTransaction> list() {
-        return transferUseCases.list();
+    List<WalletTransaction> list(@AuthenticationPrincipal AuthenticatedUser user) {
+        return transferUseCases.list(user);
     }
 
     @DeleteMapping("/{id}")

@@ -17,12 +17,6 @@ spring:
             redis-rate-limiter.burstCapacity: ${GATEWAY_RATE_BURST:40}
             key-resolver: "#{@userOrIpKeyResolver}"
       routes:
-        - id: notification-dlq-admin
-          uri: ${NOTIFICATION_SERVICE_URL:http://localhost:8083}
-          predicates:
-            - Path=/api/admin/dlq,/api/admin/dlq/**
-          filters:
-            - AddRequestHeader=X-Service-Token, ${INTERNAL_SERVICE_TOKEN}
         - id: account-service
           uri: ${ACCOUNT_SERVICE_URL:http://localhost:8081}
           predicates:

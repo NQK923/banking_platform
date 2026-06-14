@@ -44,10 +44,9 @@ class SmtpPasswordResetEmailSender implements PasswordResetEmailSender {
     public void sendPasswordResetOtp(String to, String maskedIdentifier, String otp, Instant expiresAt) {
         if (!enabled) {
             log.info(
-                "password-reset-otp to={} maskedIdentifier={} otp={} expiresAt={}",
+                "password-reset-otp requested to={} maskedIdentifier={} expiresAt={} mailEnabled=false",
                 to,
                 maskedIdentifier,
-                otp,
                 expiresAt
             );
             return;

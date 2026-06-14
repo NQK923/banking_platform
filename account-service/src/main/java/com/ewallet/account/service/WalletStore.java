@@ -122,6 +122,12 @@ public class WalletStore {
         if (normalizedEmail == null) {
             throw new DomainException("EMAIL_REQUIRED", "Email is required for v1 registration");
         }
+        if (password == null || password.length() < 6) {
+            throw new DomainException("INVALID_PASSWORD_FORMAT", "Password must be at least 6 characters");
+        }
+        if (pin == null || !pin.matches("^\\d{6}$")) {
+            throw new DomainException("INVALID_PIN_FORMAT", "Transaction PIN must be exactly 6 digits");
+        }
         if (findUserByEmail(normalizedEmail).isPresent()) {
             throw new DomainException("EMAIL_EXISTS", "Email already registered");
         }

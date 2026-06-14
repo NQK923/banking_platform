@@ -58,9 +58,18 @@ public class AuthService {
     }
 
     public AuthResponse refresh(RefreshRequest request) {
+        if (request == null || request.userId() == null || request.userId().isBlank()
+            || request.refreshToken() == null || request.refreshToken().isBlank()) {
+            throw new DomainException("AUTH_INVALID", "Invalid refresh token");
+        }
         String hash = tokenService.hashRefreshToken(request.refreshToken());
-        UserRecord user = store.findUser(UUID.fromString(request.userId()))
-            .orElseThrow(() -> new DomainException("AUTH_INVALID", "Invalid refresh token"));
+        UUID userId;
+        try {
+            userId = UUID.fromString(request.userId());
+        } catch (IllegalArgumentException ex) {
+            throw new DomainException("AUTH_INVALID", "Invalid refresh token");
+        }
+        UserRecord user = store.findUser(userId).orElseThrow(() -> new DomainException("AUTH_INVALID", "Invalid refresh token"));
         if (!Objects.equals(user.refreshTokenHash(), hash)) {
             throw new DomainException("AUTH_INVALID", "Invalid refresh token");
         }
@@ -188,11 +197,11 @@ public class AuthService {
                 user.refreshTokenHash(), user.roles(), user.status(), user.createdAt(),
                 newAttempts, lockUntil
             ));
-            throw new DomainException("PIN_INVALID", "Mã PIN hiện tại không chính xác. Vui lòng thử lại.");
+            throw new DomainException("PIN_INVALID", "Invalid current transaction PIN");
         }
 
         if (newPin == null || !newPin.matches("^\\d{6}$")) {
-            throw new DomainException("INVALID_PIN_FORMAT", "Mã PIN mới phải bao gồm đúng 6 chữ số.");
+            throw new DomainException("INVALID_PIN_FORMAT", "New transaction PIN must be exactly 6 digits");
         }
 
         store.saveUser(new UserRecord(
