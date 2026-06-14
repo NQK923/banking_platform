@@ -27,8 +27,8 @@ class AdminDlqProxyController {
 
     AdminDlqProxyController(
         RestTemplateBuilder restTemplateBuilder,
-        @Value("${banking.notification-service-url}") String notificationServiceUrl,
-        @Value("${banking.internal-service-token}") String internalServiceToken
+        @Value("${banking.notification-service-url:http://localhost:8083}") String notificationServiceUrl,
+        @Value("${banking.internal-service-token:}") String internalServiceToken
     ) {
         this.restTemplate = restTemplateBuilder.build();
         this.notificationServiceUrl = notificationServiceUrl;
