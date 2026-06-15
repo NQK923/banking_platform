@@ -14,7 +14,7 @@ class AccountUseCasesSecurityTest {
             org.mockito.Mockito.mock(AuthService.class)
         );
 
-        assertThatThrownBy(() -> useCases.deposit(UUID.randomUUID(), new AccountUseCases.MoneyRequest("100", null), null))
+        assertThatThrownBy(() -> useCases.deposit(UUID.randomUUID(), new AccountUseCases.MoneyRequest("100", null), null, null))
             .isInstanceOf(DomainException.class)
             .hasMessageContaining("User session is required");
     }
@@ -26,7 +26,7 @@ class AccountUseCasesSecurityTest {
             org.mockito.Mockito.mock(AuthService.class)
         );
 
-        assertThatThrownBy(() -> useCases.withdraw(UUID.randomUUID(), new AccountUseCases.MoneyRequest("100", null), null))
+        assertThatThrownBy(() -> useCases.withdraw(UUID.randomUUID(), new AccountUseCases.MoneyRequest("100", null), null, null))
             .isInstanceOf(DomainException.class)
             .hasMessageContaining("User session is required");
     }

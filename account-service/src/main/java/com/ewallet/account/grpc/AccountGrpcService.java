@@ -43,8 +43,8 @@ public class AccountGrpcService extends AccountQueryServiceGrpc.AccountQueryServ
     public void lookupAccount(LookupAccountRequest request, StreamObserver<LookupAccountResponse> responseObserver) {
         try {
             AccountRecord account = switch (request.getKeyCase()) {
-                case EMAIL -> accountUseCases.lookup(request.getEmail(), null);
-                case PHONE -> accountUseCases.lookup(null, request.getPhone());
+                case EMAIL -> accountUseCases.lookupRecord(request.getEmail(), null);
+                case PHONE -> accountUseCases.lookupRecord(null, request.getPhone());
                 case KEY_NOT_SET -> throw new DomainException("IDENTIFIER_REQUIRED", "Email or phone is required");
             };
             responseObserver.onNext(LookupAccountResponse.newBuilder()

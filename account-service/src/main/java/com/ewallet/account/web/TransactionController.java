@@ -35,7 +35,7 @@ public class TransactionController {
     }
 
     @GetMapping("/{id}")
-    WalletTransaction get(@PathVariable UUID id, @AuthenticationPrincipal AuthenticatedUser user) {
+    WalletTransaction get(@PathVariable("id") UUID id, @AuthenticationPrincipal AuthenticatedUser user) {
         return transferUseCases.get(id, user);
     }
 
@@ -45,7 +45,7 @@ public class TransactionController {
     }
 
     @DeleteMapping("/{id}")
-    WalletTransaction cancel(@PathVariable UUID id, @AuthenticationPrincipal AuthenticatedUser user) {
+    WalletTransaction cancel(@PathVariable("id") UUID id, @AuthenticationPrincipal AuthenticatedUser user) {
         return transferUseCases.cancel(id, user);
     }
 }

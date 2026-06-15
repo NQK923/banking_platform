@@ -27,7 +27,7 @@ public class TransactionProxyController {
     }
 
     @GetMapping("/{id}")
-    ResponseEntity<String> get(@PathVariable String id, @RequestHeader HttpHeaders headers) {
+    ResponseEntity<String> get(@PathVariable("id") String id, @RequestHeader HttpHeaders headers) {
         return accountServiceClient.exchange(HttpMethod.GET, "/api/transactions/" + id, null, headers);
     }
 
@@ -37,7 +37,7 @@ public class TransactionProxyController {
     }
 
     @DeleteMapping("/{id}")
-    ResponseEntity<String> cancel(@PathVariable String id, @RequestHeader HttpHeaders headers) {
+    ResponseEntity<String> cancel(@PathVariable("id") String id, @RequestHeader HttpHeaders headers) {
         return accountServiceClient.exchange(HttpMethod.DELETE, "/api/transactions/" + id, null, headers);
     }
 }

@@ -14,6 +14,9 @@ class InternalServiceTokenFilter extends OncePerRequestFilter {
     private final String token;
 
     InternalServiceTokenFilter(@Value("${banking.internal-service-token:}") String token) {
+        if (token == null || token.isBlank()) {
+            throw new IllegalStateException("banking.internal-service-token must be configured");
+        }
         this.token = token;
     }
 

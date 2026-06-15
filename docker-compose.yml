@@ -93,9 +93,9 @@ services:
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: 6379
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN required}
-    ports:
-      - "8081:8081"
-      - "9090:9090"
+    expose:
+      - "8081"
+      - "9090"
 
   transaction-service:
     image: eclipse-temurin:17-jre
@@ -109,8 +109,8 @@ services:
     environment:
       BANKING_ACCOUNT_SERVICE_BASE_URL: http://account-service:8081
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN required}
-    ports:
-      - "8082:8082"
+    expose:
+      - "8082"
 
   audit-service:
     image: eclipse-temurin:17-jre
@@ -124,8 +124,8 @@ services:
     environment:
       BANKING_ACCOUNT_SERVICE_BASE_URL: http://account-service:8081
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN required}
-    ports:
-      - "8084:8084"
+    expose:
+      - "8084"
 
   reconciliation-service:
     image: eclipse-temurin:17-jre
@@ -139,8 +139,8 @@ services:
     environment:
       BANKING_ACCOUNT_SERVICE_BASE_URL: http://account-service:8081
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN required}
-    ports:
-      - "8086:8086"
+    expose:
+      - "8086"
 
   notification-service:
     image: eclipse-temurin:17-jre
@@ -158,8 +158,8 @@ services:
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: 6379
       INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?INTERNAL_SERVICE_TOKEN required}
-    ports:
-      - "8083:8083"
+    expose:
+      - "8083"
 
   api-gateway:
     image: eclipse-temurin:17-jre

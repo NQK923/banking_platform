@@ -214,9 +214,73 @@ class GapsFlowTest {
             null,
             "{\"refreshToken\":\"" + user.refreshToken() + "\"}",
             null
-        ).andExpect(status().isUnauthorized()).andReturnJson();
+        ).andExpect(status().isOk()).andReturnJson();
 
-        assertThat(response.get("code").asText()).isEqualTo("AUTH_INVALID");
+        assertThat(response.get("accessToken").asText()).isNotBlank();
+        assertThat(response.get("userId").asText()).isEqualTo(user.userId());
+    }
+
+    @Test
+    void registerRejectsNonVndForV1() throws Exception {
+        JsonNode response = postJson(
+            "/api/auth/register",
+            null,
+            "{\"email\":\"usd-user@example.test\",\"phone\":\"+84000000928\",\"password\":\"Password123!\",\"pin\":\"123456\",\"currency\":\"USD\"}",
+            null
+        ).andExpect(status().isUnprocessableEntity()).andReturnJson();
+
+        assertThat(response.get("code").asText()).isEqualTo("UNSUPPORTED_CURRENCY");
+    }
+
+    @Test
+    void verifyPinEndpointUsesAuthenticatedUser() throws Exception {
+        Auth user = register("verify-pin@example.test", "+84000000927", "123456");
+
+        postJson("/api/auth/pin/verify", user.accessToken(), "{\"pin\":\"123456\"}", null)
+            .andExpect(status().isOk());
+
+        postJson("/api/auth/pin/verify", user.accessToken(), "{\"pin\":\"999999\"}", null)
+            .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void lookupRecipientReturnsMatchedIdentifiersForSubmit() throws Exception {
+        Auth receiver = register("lookup-receiver@example.test", "+84000000926", "123456");
+
+        JsonNode byEmail = getJson("/api/accounts/lookup?email=lookup-receiver@example.test", receiver.accessToken());
+        assertThat(byEmail.get("id").asText()).isEqualTo(receiver.accountId());
+        assertThat(byEmail.get("email").asText()).isEqualTo("lookup-receiver@example.test");
+        assertThat(byEmail.get("phone").asText()).isEqualTo("+84000000926");
+
+        JsonNode byPhone = getJson("/api/accounts/lookup?phone=%2B84000000926", receiver.accessToken());
+        assertThat(byPhone.get("id").asText()).isEqualTo(receiver.accountId());
+        assertThat(byPhone.get("email").asText()).isEqualTo("lookup-receiver@example.test");
+        assertThat(byPhone.get("phone").asText()).isEqualTo("+84000000926");
+    }
+
+    @Test
+    void depositAndWithdrawHonorIdempotencyKey() throws Exception {
+        Auth user = register("idempotent-wallet@example.test", "+84000000925", "123456");
+        String admin = login("admin@local.test", "Admin123!").accessToken();
+
+        String depositKey = UUID.randomUUID().toString();
+        JsonNode firstDeposit = postJson("/api/accounts/" + user.accountId() + "/deposit", admin, "{\"amount\":\"500\"}", depositKey)
+            .andExpect(status().isOk()).andReturnJson();
+        JsonNode duplicateDeposit = postJson("/api/accounts/" + user.accountId() + "/deposit", admin, "{\"amount\":\"500\"}", depositKey)
+            .andExpect(status().isOk()).andReturnJson();
+        assertThat(duplicateDeposit.get("journalId").asText()).isEqualTo(firstDeposit.get("journalId").asText());
+        assertThat(getJson("/api/accounts/" + user.accountId() + "/balance", user.accessToken()).get("balance").asText()).isEqualTo("500");
+
+        postJson("/api/accounts/" + user.accountId() + "/deposit", admin, "{\"amount\":\"501\"}", depositKey)
+            .andExpect(status().isUnprocessableEntity());
+
+        String withdrawKey = UUID.randomUUID().toString();
+        JsonNode firstWithdraw = postJson("/api/accounts/" + user.accountId() + "/withdraw", user.accessToken(), "{\"amount\":\"100\",\"pin\":\"123456\"}", withdrawKey)
+            .andExpect(status().isOk()).andReturnJson();
+        JsonNode duplicateWithdraw = postJson("/api/accounts/" + user.accountId() + "/withdraw", user.accessToken(), "{\"amount\":\"100\",\"pin\":\"123456\"}", withdrawKey)
+            .andExpect(status().isOk()).andReturnJson();
+        assertThat(duplicateWithdraw.get("journalId").asText()).isEqualTo(firstWithdraw.get("journalId").asText());
+        assertThat(getJson("/api/accounts/" + user.accountId() + "/balance", user.accessToken()).get("balance").asText()).isEqualTo("400");
     }
 
     @Test
@@ -226,6 +290,8 @@ class GapsFlowTest {
         String admin = login("admin@local.test", "Admin123!").accessToken();
 
         postJson("/api/accounts/" + owner.accountId() + "/deposit", owner.accessToken(), "{\"amount\":\"10\"}", null)
+            .andExpect(status().isForbidden());
+        postJson("/api/accounts/" + owner.accountId() + "/deposit", admin, "{\"amount\":\"10\"}", null)
             .andExpect(status().isOk());
 
         mvc.perform(get("/api/accounts/" + owner.accountId()).header("Authorization", "Bearer " + other.accessToken()))
@@ -419,6 +485,42 @@ class GapsFlowTest {
         assertThat(page2.get("items")).isEmpty();
         assertThat(page2.get("totalElements").asLong()).isEqualTo(15);
         assertThat(page2.get("totalPages").asInt()).isEqualTo(2);
+    }
+
+    @Test
+    void userCannotReadAuditLogsAndAdminCan() throws Exception {
+        Auth user = register("audit-user@example.test", "+84000000940", "123456");
+        String admin = login("admin@local.test", "Admin123!").accessToken();
+
+        // 1. Unauthenticated gets 401 Unauthorized
+        mvc.perform(get("/api/audit").accept(MediaType.APPLICATION_JSON))
+            .andExpect(status().isUnauthorized());
+
+        // 2. Standard user (ROLE_USER) gets 403 Forbidden
+        mvc.perform(get("/api/audit").header("Authorization", "Bearer " + user.accessToken()).accept(MediaType.APPLICATION_JSON))
+            .andExpect(status().isForbidden());
+
+        // 3. Admin (ROLE_ADMIN) gets 200 OK
+        mvc.perform(get("/api/audit").header("Authorization", "Bearer " + admin).accept(MediaType.APPLICATION_JSON))
+            .andExpect(status().isOk());
+    }
+
+    @Test
+    void userCannotRunReconciliationAndAdminCan() throws Exception {
+        Auth user = register("recon-user@example.test", "+84000000941", "123456");
+        String admin = login("admin@local.test", "Admin123!").accessToken();
+
+        // 1. Unauthenticated gets 401 Unauthorized
+        mvc.perform(post("/api/reconciliation/run").accept(MediaType.APPLICATION_JSON))
+            .andExpect(status().isUnauthorized());
+
+        // 2. Standard user (ROLE_USER) gets 403 Forbidden
+        postJson("/api/reconciliation/run", user.accessToken(), "", null)
+            .andExpect(status().isForbidden());
+
+        // 3. Admin (ROLE_ADMIN) gets 200 OK
+        postJson("/api/reconciliation/run", admin, "", null)
+            .andExpect(status().isOk());
     }
 
     private Auth register(String email, String phone, String pin) throws Exception {

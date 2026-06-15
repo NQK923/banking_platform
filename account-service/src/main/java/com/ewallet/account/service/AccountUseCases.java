@@ -13,7 +13,12 @@ import java.util.UUID;
 import com.ewallet.account.model.UserRecord;
 import com.ewallet.account.security.AuthenticatedUser;
 import com.ewallet.account.web.PaginatedHistoryResponse;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class AccountUseCases {
@@ -72,7 +77,11 @@ public class AccountUseCases {
         return new BalanceResponse(accountId.toString(), new Money(store.balance(accountId), account.currency()).asString(), account.currency());
     }
 
-    public AccountRecord lookup(String email, String phone) {
+    public AccountDetailsResponse lookup(String email, String phone) {
+        return accountDetails(lookupRecord(email, phone));
+    }
+
+    public AccountRecord lookupRecord(String email, String phone) {
         AccountRecord account = store.lookupAccount(email, phone)
             .orElseThrow(() -> new DomainException("RECIPIENT_NOT_FOUND", "Recipient account was not found"));
         if (account.status() != AccountStatus.ACTIVE) {
@@ -81,11 +90,18 @@ public class AccountUseCases {
         return account;
     }
 
-    public MovementResponse deposit(UUID accountId, MoneyRequest request, AuthenticatedUser actor) {
+    @Transactional
+    public MovementResponse deposit(UUID accountId, MoneyRequest request, AuthenticatedUser actor, String idempotencyKey) {
         AccountRecord account = store.account(accountId);
-        requireOwnAccountOrAdmin(account, actor, "Cannot deposit to another account");
+        requireAdmin(actor, "Only admins can create mock deposits");
         Money amount = Money.of(request.amount(), account.currency());
+        String payloadHash = walletOperationPayloadHash("DEPOSIT", amount.asString(), null);
+        MovementResponse duplicate = existingWalletOperation(account, "DEPOSIT", idempotencyKey, payloadHash);
+        if (duplicate != null) {
+            return duplicate;
+        }
         UUID journalId = UUID.randomUUID();
+        store.recordWalletOperation(accountId, "DEPOSIT", idempotencyKey, payloadHash, journalId);
         store.applyBalancedJournalAndAudit(
             journalId,
             amount,
@@ -104,7 +120,8 @@ public class AccountUseCases {
         return new MovementResponse(journalId.toString(), balance(account));
     }
 
-    public MovementResponse withdraw(UUID accountId, MoneyRequest request, AuthenticatedUser actor) {
+    @Transactional
+    public MovementResponse withdraw(UUID accountId, MoneyRequest request, AuthenticatedUser actor, String idempotencyKey) {
         AccountRecord account = store.account(accountId);
         requireAuthenticated(actor);
         UserRecord user = store.findUser(actor.userId())
@@ -117,15 +134,21 @@ public class AccountUseCases {
             if (request.pin() == null || request.pin().isBlank()) {
                 throw new DomainException("PIN_INVALID", "Transaction PIN is required");
             }
-            authService.verifyPin(actor.userId(), request.pin());
-        } else {
-            if (request.pin() != null && !request.pin().isBlank()) {
-                authService.verifyPin(actor.userId(), request.pin());
-            }
         }
 
         Money amount = Money.of(request.amount(), account.currency());
+        String payloadHash = walletOperationPayloadHash("WITHDRAW", amount.asString(), request.pin());
+        MovementResponse duplicate = existingWalletOperation(account, "WITHDRAW", idempotencyKey, payloadHash);
+        if (duplicate != null) {
+            return duplicate;
+        }
+        if (!user.roles().contains("ROLE_ADMIN")) {
+            authService.verifyPin(actor.userId(), request.pin());
+        } else if (request.pin() != null && !request.pin().isBlank()) {
+            authService.verifyPin(actor.userId(), request.pin());
+        }
         UUID journalId = UUID.randomUUID();
+        store.recordWalletOperation(accountId, "WITHDRAW", idempotencyKey, payloadHash, journalId);
         store.applyBalancedJournalAndAudit(
             journalId,
             amount,
@@ -144,6 +167,35 @@ public class AccountUseCases {
         return new MovementResponse(journalId.toString(), balance(account));
     }
 
+    private MovementResponse existingWalletOperation(
+        AccountRecord account,
+        String operationType,
+        String idempotencyKey,
+        String payloadHash
+    ) {
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+            return null;
+        }
+        return store.findWalletOperation(account.id(), operationType, idempotencyKey)
+            .map(existing -> {
+                if (!existing.payloadHash().equals(payloadHash)) {
+                    throw new DomainException("IDEMPOTENCY_PAYLOAD_MISMATCH", "Idempotency key was reused with a different payload");
+                }
+                return new MovementResponse(existing.journalId().toString(), balance(account));
+            })
+            .orElse(null);
+    }
+
+    private String walletOperationPayloadHash(String operationType, String amount, String pin) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            String payload = operationType + "|" + amount + "|" + (pin == null ? "" : pin);
+            return HexFormat.of().formatHex(digest.digest(payload.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException ex) {
+            throw new IllegalStateException("SHA-256 is required", ex);
+        }
+    }
+
     private void requireAuthenticated(AuthenticatedUser actor) {
         if (actor == null) {
             throw new DomainException("FORBIDDEN", "User session is required");
@@ -152,6 +204,13 @@ public class AccountUseCases {
 
     private boolean isAdmin(AuthenticatedUser actor) {
         return actor != null && actor.roles().contains("ROLE_ADMIN");
+    }
+
+    private void requireAdmin(AuthenticatedUser actor, String message) {
+        requireAuthenticated(actor);
+        if (!isAdmin(actor)) {
+            throw new DomainException("FORBIDDEN", message);
+        }
     }
 
     private void requireAccountAccess(AccountRecord account, AuthenticatedUser actor) {

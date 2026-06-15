@@ -7,6 +7,9 @@ import com.ewallet.account.service.AuthService.PasswordResetOtpRequest;
 import com.ewallet.account.service.AuthService.RefreshRequest;
 import com.ewallet.account.service.AuthService.RegisterRequest;
 import com.ewallet.account.service.AuthService.ResetPasswordRequest;
+import com.ewallet.account.security.AuthenticatedUser;
+import com.ewallet.common.DomainException;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -36,6 +39,14 @@ public class AuthController {
         return authService.refresh(request);
     }
 
+    @PostMapping("/pin/verify")
+    void verifyPin(@AuthenticationPrincipal AuthenticatedUser user, @RequestBody PinVerifyRequest request) {
+        if (user == null) {
+            throw new DomainException("FORBIDDEN", "User session is required");
+        }
+        authService.verifyPin(user.userId(), request.pin());
+    }
+
     @PostMapping("/password/otp")
     void requestPasswordResetOtp(@RequestBody PasswordResetOtpRequest request) {
         authService.requestPasswordResetOtp(request);
@@ -44,5 +55,8 @@ public class AuthController {
     @PostMapping("/password/reset")
     void resetPassword(@RequestBody ResetPasswordRequest request) {
         authService.resetPassword(request);
+    }
+
+    public record PinVerifyRequest(String pin) {
     }
 }

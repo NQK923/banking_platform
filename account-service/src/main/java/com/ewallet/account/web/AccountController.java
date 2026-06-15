@@ -22,6 +22,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -41,35 +42,45 @@ public class AccountController {
     }
 
     @GetMapping("/{id}")
-    AccountDetailsResponse get(@PathVariable UUID id, @AuthenticationPrincipal AuthenticatedUser user) {
+    AccountDetailsResponse get(@PathVariable("id") UUID id, @AuthenticationPrincipal AuthenticatedUser user) {
         return accountUseCases.accountDetails(id, user);
     }
 
     @GetMapping("/{id}/balance")
-    BalanceResponse balance(@PathVariable UUID id, @AuthenticationPrincipal AuthenticatedUser user) {
+    BalanceResponse balance(@PathVariable("id") UUID id, @AuthenticationPrincipal AuthenticatedUser user) {
         return accountUseCases.balance(id, user);
     }
 
     @GetMapping("/lookup")
-    AccountRecord lookup(@RequestParam(required = false) String email, @RequestParam(required = false) String phone) {
+    AccountDetailsResponse lookup(@RequestParam(value = "email", required = false) String email, @RequestParam(value = "phone", required = false) String phone) {
         return accountUseCases.lookup(email, phone);
     }
 
     @PostMapping("/{id}/deposit")
-    MovementResponse deposit(@PathVariable UUID id, @RequestBody MoneyRequest request, @AuthenticationPrincipal AuthenticatedUser user) {
-        return accountUseCases.deposit(id, request, user);
+    MovementResponse deposit(
+        @PathVariable("id") UUID id,
+        @RequestBody MoneyRequest request,
+        @AuthenticationPrincipal AuthenticatedUser user,
+        @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey
+    ) {
+        return accountUseCases.deposit(id, request, user, idempotencyKey);
     }
 
     @PostMapping("/{id}/withdraw")
-    MovementResponse withdraw(@PathVariable UUID id, @RequestBody MoneyRequest request, @AuthenticationPrincipal AuthenticatedUser user) {
-        return accountUseCases.withdraw(id, request, user);
+    MovementResponse withdraw(
+        @PathVariable("id") UUID id,
+        @RequestBody MoneyRequest request,
+        @AuthenticationPrincipal AuthenticatedUser user,
+        @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey
+    ) {
+        return accountUseCases.withdraw(id, request, user, idempotencyKey);
     }
 
     @GetMapping("/{id}/history")
     ResponseEntity<?> history(
-        @PathVariable UUID id,
-        @RequestParam(required = false) Integer page,
-        @RequestParam(required = false) Integer size,
+        @PathVariable("id") UUID id,
+        @RequestParam(value = "page", required = false) Integer page,
+        @RequestParam(value = "size", required = false) Integer size,
         @AuthenticationPrincipal AuthenticatedUser user
     ) {
         if (page == null) {
@@ -93,7 +104,7 @@ public class AccountController {
     }
 
     @GetMapping("/{id}/ledger")
-    List<LedgerEntryRecord> ledger(@PathVariable UUID id, @AuthenticationPrincipal AuthenticatedUser user) {
+    List<LedgerEntryRecord> ledger(@PathVariable("id") UUID id, @AuthenticationPrincipal AuthenticatedUser user) {
         return accountUseCases.ledger(id, user);
     }
 }

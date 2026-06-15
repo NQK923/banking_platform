@@ -46,7 +46,7 @@ public class SupportChatController {
     @PostMapping("/api/support/chat/sessions/{sessionId}/messages")
     MessageResponse sendMessage(
         @AuthenticationPrincipal AuthenticatedUser user,
-        @PathVariable UUID sessionId,
+        @PathVariable("sessionId") UUID sessionId,
         @RequestBody SendMessageRequest request
     ) {
         return supportChatUseCases.sendMessage(user, sessionId, request);
@@ -55,7 +55,7 @@ public class SupportChatController {
     @GetMapping("/api/support/chat/sessions/{sessionId}")
     SessionDetail getSession(
         @AuthenticationPrincipal AuthenticatedUser user,
-        @PathVariable UUID sessionId
+        @PathVariable("sessionId") UUID sessionId
     ) {
         return supportChatUseCases.getSession(user, sessionId);
     }
@@ -63,8 +63,8 @@ public class SupportChatController {
     @GetMapping("/api/support/chat/sessions")
     PageResponse<SessionSummary> listSessions(
         @AuthenticationPrincipal AuthenticatedUser user,
-        @RequestParam(defaultValue = "0") int page,
-        @RequestParam(defaultValue = "20") int size
+        @RequestParam(value = "page", defaultValue = "0") int page,
+        @RequestParam(value = "size", defaultValue = "20") int size
     ) {
         return supportChatUseCases.listSessions(user, page, size);
     }
@@ -72,7 +72,7 @@ public class SupportChatController {
     @PostMapping("/api/support/chat/sessions/{sessionId}/handoff")
     HandoffResponse requestHandoff(
         @AuthenticationPrincipal AuthenticatedUser user,
-        @PathVariable UUID sessionId,
+        @PathVariable("sessionId") UUID sessionId,
         @RequestBody HandoffRequest request
     ) {
         return supportChatUseCases.requestHandoff(user, sessionId, request);
@@ -81,11 +81,11 @@ public class SupportChatController {
     @GetMapping("/api/admin/support/cases")
     PageResponse<SupportCaseSummary> listCases(
         @AuthenticationPrincipal AuthenticatedUser user,
-        @RequestParam(defaultValue = "0") int page,
-        @RequestParam(defaultValue = "20") int size,
-        @RequestParam(required = false) String status,
-        @RequestParam(required = false) String topic,
-        @RequestParam(required = false) String q
+        @RequestParam(value = "page", defaultValue = "0") int page,
+        @RequestParam(value = "size", defaultValue = "20") int size,
+        @RequestParam(value = "status", required = false) String status,
+        @RequestParam(value = "topic", required = false) String topic,
+        @RequestParam(value = "q", required = false) String q
     ) {
         return supportChatUseCases.listCases(user == null ? null : user.userId(), page, size, status, topic, q);
     }
@@ -93,7 +93,7 @@ public class SupportChatController {
     @GetMapping("/api/admin/support/cases/{caseId}")
     SupportCaseDetail getCase(
         @AuthenticationPrincipal AuthenticatedUser user,
-        @PathVariable UUID caseId
+        @PathVariable("caseId") UUID caseId
     ) {
         return supportChatUseCases.getCase(user == null ? null : user.userId(), caseId);
     }
@@ -101,7 +101,7 @@ public class SupportChatController {
     @PostMapping("/api/admin/support/cases/{caseId}/reply")
     AdminReplyResponse adminReply(
         @AuthenticationPrincipal AuthenticatedUser user,
-        @PathVariable UUID caseId,
+        @PathVariable("caseId") UUID caseId,
         @RequestBody AdminReplyRequest request
     ) {
         return supportChatUseCases.adminReply(user == null ? null : user.userId(), caseId, request);
@@ -110,7 +110,7 @@ public class SupportChatController {
     @PostMapping("/api/admin/support/cases/{caseId}/close")
     CloseCaseResponse closeCase(
         @AuthenticationPrincipal AuthenticatedUser user,
-        @PathVariable UUID caseId,
+        @PathVariable("caseId") UUID caseId,
         @RequestBody CloseCaseRequest request
     ) {
         return supportChatUseCases.closeCase(user == null ? null : user.userId(), caseId, request);

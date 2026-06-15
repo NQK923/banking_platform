@@ -46,10 +46,10 @@ class RiskController {
 
     @GetMapping("/api/admin/risk")
     PageResponse<RiskEvaluationRecord> list(
-        @RequestParam(defaultValue = "0") int page,
-        @RequestParam(defaultValue = "10") int size,
-        @RequestParam(required = false) String level,
-        @RequestParam(required = false) String action
+        @RequestParam(value = "page", defaultValue = "0") int page,
+        @RequestParam(value = "size", defaultValue = "10") int size,
+        @RequestParam(value = "level", required = false) String level,
+        @RequestParam(value = "action", required = false) String action
     ) {
         String levelFilter = level == null ? "" : level.trim().toUpperCase();
         String actionFilter = action == null ? "" : action.trim().toUpperCase();
@@ -61,17 +61,17 @@ class RiskController {
     }
 
     @GetMapping("/api/admin/risk/{id}")
-    RiskEvaluationRecord get(@PathVariable UUID id) {
+    RiskEvaluationRecord get(@PathVariable("id") UUID id) {
         return store.riskEvaluation(id);
     }
 
     @PostMapping("/api/admin/risk/{id}/approve")
-    WalletTransaction approve(@PathVariable UUID id, @RequestBody ReviewRequest request, @AuthenticationPrincipal AuthenticatedUser user) {
+    WalletTransaction approve(@PathVariable("id") UUID id, @RequestBody ReviewRequest request, @AuthenticationPrincipal AuthenticatedUser user) {
         return transferUseCases.approveRiskReview(id, request.reason(), user);
     }
 
     @PostMapping("/api/admin/risk/{id}/reject")
-    WalletTransaction reject(@PathVariable UUID id, @RequestBody ReviewRequest request, @AuthenticationPrincipal AuthenticatedUser user) {
+    WalletTransaction reject(@PathVariable("id") UUID id, @RequestBody ReviewRequest request, @AuthenticationPrincipal AuthenticatedUser user) {
         return transferUseCases.rejectRiskReview(id, request.reason(), user);
     }
 

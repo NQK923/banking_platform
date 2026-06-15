@@ -14,17 +14,22 @@ class InternalServiceTokenFilter extends OncePerRequestFilter {
     private final String token;
 
     InternalServiceTokenFilter(@Value("${banking.internal-service-token:}") String token) {
+        if (token == null || token.isBlank()) {
+            throw new IllegalStateException("banking.internal-service-token must be configured");
+        }
         this.token = token;
     }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
         throws ServletException, IOException {
-        if (request.getRequestURI().startsWith("/api/admin/dlq")) {
-            if (token.isBlank() || !token.equals(request.getHeader("X-Service-Token"))) {
-                response.sendError(HttpServletResponse.SC_FORBIDDEN, "Invalid internal service token");
-                return;
-            }
+        if (request.getRequestURI().startsWith("/actuator/health")) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+        if (!token.equals(request.getHeader("X-Service-Token"))) {
+            response.sendError(HttpServletResponse.SC_FORBIDDEN, "Invalid internal service token");
+            return;
         }
         filterChain.doFilter(request, response);
     }

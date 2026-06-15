@@ -46,7 +46,7 @@ class AccountGrpcServiceTest {
     void lookupAccountReturnsStatusAndCurrency() throws Exception {
         UUID accountId = UUID.randomUUID();
         AccountRecord account = new AccountRecord(accountId, UUID.randomUUID(), null, "VND", AccountKind.USER, AccountStatus.ACTIVE, 0, Instant.now());
-        when(accountUseCases.lookup("receiver@example.test", null)).thenReturn(account);
+        when(accountUseCases.lookupRecord("receiver@example.test", null)).thenReturn(account);
 
         RecordingObserver<LookupAccountResponse> recorder = new RecordingObserver<>();
         service.lookupAccount(
@@ -64,7 +64,7 @@ class AccountGrpcServiceTest {
 
     @Test
     void lookupNotFoundMapsToGrpcNotFound() {
-        when(accountUseCases.lookup("missing@example.test", null))
+        when(accountUseCases.lookupRecord("missing@example.test", null))
             .thenThrow(new DomainException("RECIPIENT_NOT_FOUND", "Recipient account was not found"));
 
         RecordingObserver<LookupAccountResponse> recorder = new RecordingObserver<>();

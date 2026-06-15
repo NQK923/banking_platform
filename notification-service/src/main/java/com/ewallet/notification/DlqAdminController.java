@@ -18,7 +18,7 @@ class DlqAdminController {
     }
 
     @GetMapping
-    List<DlqMessage> inspect(@RequestParam(defaultValue = "50") int limit) {
+    List<DlqMessage> inspect(@RequestParam(value = "limit", defaultValue = "50") int limit) {
         return replayService.inspect(Math.max(1, Math.min(limit, 500)));
     }
 

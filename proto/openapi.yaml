@@ -53,6 +53,18 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AuthResponse"
+  /api/auth/pin/verify:
+    post:
+      operationId: verifyPin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PinVerifyRequest"
+      responses:
+        "200":
+          description: PIN verified for the authenticated user
   /api/auth/password/otp:
     post:
       operationId: requestPasswordResetOtp
@@ -127,6 +139,10 @@ paths:
       responses:
         "200":
           description: Account lookup result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccountDetails"
   /api/accounts/{id}:
     get:
       operationId: getAccountDetails
@@ -160,6 +176,7 @@ paths:
   /api/accounts/{id}/deposit:
     post:
       operationId: deposit
+      description: Admin-only mock deposit against the SYSTEM CASH_CLEARING account.
       parameters:
         - name: id
           in: path
@@ -167,6 +184,10 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: Idempotency-Key
+          in: header
+          schema:
+            type: string
       responses:
         "200":
           description: Deposit ledger result
@@ -180,6 +201,10 @@ paths:
           schema:
             type: string
             format: uuid
+        - name: Idempotency-Key
+          in: header
+          schema:
+            type: string
       responses:
         "200":
           description: Withdraw ledger result
@@ -602,6 +627,7 @@ components:
         currency:
           type: string
           default: VND
+          enum: [VND]
     LoginRequest:
       type: object
       required: [identifier, password]
@@ -614,13 +640,18 @@ components:
           writeOnly: true
     RefreshRequest:
       type: object
-      required: [userId, refreshToken]
+      required: [refreshToken]
       properties:
-        userId:
-          type: string
-          format: uuid
         refreshToken:
           type: string
+          writeOnly: true
+    PinVerifyRequest:
+      type: object
+      required: [pin]
+      properties:
+        pin:
+          type: string
+          pattern: "^\\d{6}$"
           writeOnly: true
     AuthResponse:
       type: object

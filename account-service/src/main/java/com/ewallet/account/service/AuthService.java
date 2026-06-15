@@ -9,7 +9,6 @@ import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
@@ -43,8 +42,14 @@ public class AuthService {
     }
 
     public AuthResponse register(RegisterRequest request) {
-        UserRecord user = store.createUser(request.email(), request.phone(), request.password(), request.pin(), request.currency());
-        AccountRecord account = store.userAccount(user.id(), request.currency() == null ? "VND" : request.currency());
+        String currency = request.currency() == null || request.currency().isBlank()
+            ? "VND"
+            : request.currency().trim().toUpperCase();
+        if (!"VND".equals(currency)) {
+            throw new DomainException("UNSUPPORTED_CURRENCY", "v1 wallets support VND only");
+        }
+        UserRecord user = store.createUser(request.email(), request.phone(), request.password(), request.pin(), currency);
+        AccountRecord account = store.userAccount(user.id(), currency);
         return issueTokens(user, account);
     }
 
@@ -58,21 +63,12 @@ public class AuthService {
     }
 
     public AuthResponse refresh(RefreshRequest request) {
-        if (request == null || request.userId() == null || request.userId().isBlank()
-            || request.refreshToken() == null || request.refreshToken().isBlank()) {
+        if (request == null || request.refreshToken() == null || request.refreshToken().isBlank()) {
             throw new DomainException("AUTH_INVALID", "Invalid refresh token");
         }
         String hash = tokenService.hashRefreshToken(request.refreshToken());
-        UUID userId;
-        try {
-            userId = UUID.fromString(request.userId());
-        } catch (IllegalArgumentException ex) {
-            throw new DomainException("AUTH_INVALID", "Invalid refresh token");
-        }
-        UserRecord user = store.findUser(userId).orElseThrow(() -> new DomainException("AUTH_INVALID", "Invalid refresh token"));
-        if (!Objects.equals(user.refreshTokenHash(), hash)) {
-            throw new DomainException("AUTH_INVALID", "Invalid refresh token");
-        }
+        UserRecord user = store.findUserByRefreshTokenHash(hash)
+            .orElseThrow(() -> new DomainException("AUTH_INVALID", "Invalid refresh token"));
         AccountRecord account = store.userAccount(user.id(), "VND");
         return issueTokens(user, account);
     }
@@ -265,7 +261,7 @@ public class AuthService {
     public record LoginRequest(String identifier, String password) {
     }
 
-    public record RefreshRequest(String userId, String refreshToken) {
+    public record RefreshRequest(String refreshToken) {
     }
 
     public record PasswordResetOtpRequest(String identifier) {

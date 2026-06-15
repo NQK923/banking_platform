@@ -234,6 +234,13 @@ public class WalletStore {
         return queryOne("SELECT * FROM users WHERE id = ?", userMapper(), id);
     }
 
+    public Optional<UserRecord> findUserByRefreshTokenHash(String refreshTokenHash) {
+        if (refreshTokenHash == null || refreshTokenHash.isBlank()) {
+            return Optional.empty();
+        }
+        return queryOne("SELECT * FROM users WHERE refresh_token_hash = ?", userMapper(), refreshTokenHash);
+    }
+
     public synchronized void saveUser(UserRecord user) {
         jdbc.update(
             """
@@ -253,6 +260,62 @@ public class WalletStore {
             user.pinLockedUntil() != null ? Timestamp.from(user.pinLockedUntil()) : null,
             user.id()
         );
+    }
+
+    public Optional<IdempotentWalletOperation> findWalletOperation(
+        UUID accountId,
+        String operationType,
+        String idempotencyKey
+    ) {
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+            return Optional.empty();
+        }
+        return queryOne(
+            """
+                SELECT account_id, operation_type, idempotency_key, payload_hash, journal_id
+                FROM wallet_operation_idempotency
+                WHERE account_id = ? AND operation_type = ? AND idempotency_key = ?
+                """,
+            (rs, rowNum) -> new IdempotentWalletOperation(
+                uuid(rs, "account_id"),
+                rs.getString("operation_type"),
+                rs.getString("idempotency_key"),
+                rs.getString("payload_hash"),
+                uuid(rs, "journal_id")
+            ),
+            accountId,
+            operationType,
+            idempotencyKey
+        );
+    }
+
+    public synchronized void recordWalletOperation(
+        UUID accountId,
+        String operationType,
+        String idempotencyKey,
+        String payloadHash,
+        UUID journalId
+    ) {
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+            return;
+        }
+        try {
+            jdbc.update(
+                """
+                    INSERT INTO wallet_operation_idempotency
+                        (account_id, operation_type, idempotency_key, payload_hash, journal_id, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                accountId,
+                operationType,
+                idempotencyKey,
+                payloadHash,
+                journalId,
+                Timestamp.from(Instant.now())
+            );
+        } catch (DuplicateKeyException ex) {
+            throw new DomainException("IDEMPOTENCY_CONFLICT", "Idempotency record already exists");
+        }
     }
 
     public synchronized void createPasswordResetOtp(PasswordResetOtpRecord record) {
@@ -1369,6 +1432,15 @@ public class WalletStore {
     }
 
     private record AccountEventAmount(long version, BigDecimal amount) {
+    }
+
+    public record IdempotentWalletOperation(
+        UUID accountId,
+        String operationType,
+        String idempotencyKey,
+        String payloadHash,
+        UUID journalId
+    ) {
     }
 
     private RowMapper<UserRecord> userMapper() {

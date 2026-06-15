@@ -33,39 +33,39 @@ public class AdminController {
     @GetMapping("/accounts")
     PageResponse<AdminAccountView> accounts(
         @AuthenticationPrincipal AuthenticatedUser user,
-        @RequestParam(defaultValue = "0") int page,
-        @RequestParam(defaultValue = "10") int size,
-        @RequestParam(required = false) String q
+        @RequestParam(value = "page", defaultValue = "0") int page,
+        @RequestParam(value = "size", defaultValue = "10") int size,
+        @RequestParam(value = "q", required = false) String q
     ) {
         return adminUseCases.accounts(user == null ? null : user.userId(), page, size, q);
     }
 
     @GetMapping("/accounts/{id}")
-    AdminAccountView account(@PathVariable UUID id, @AuthenticationPrincipal AuthenticatedUser user) {
+    AdminAccountView account(@PathVariable("id") UUID id, @AuthenticationPrincipal AuthenticatedUser user) {
         return adminUseCases.account(id, user == null ? null : user.userId());
     }
 
     @GetMapping("/transactions")
     PageResponse<WalletTransaction> transactions(
         @AuthenticationPrincipal AuthenticatedUser user,
-        @RequestParam(defaultValue = "0") int page,
-        @RequestParam(defaultValue = "10") int size,
-        @RequestParam(required = false) String status,
-        @RequestParam(required = false) String accountId
+        @RequestParam(value = "page", defaultValue = "0") int page,
+        @RequestParam(value = "size", defaultValue = "10") int size,
+        @RequestParam(value = "status", required = false) String status,
+        @RequestParam(value = "accountId", required = false) String accountId
     ) {
         return adminUseCases.transactions(user == null ? null : user.userId(), page, size, status, accountId);
     }
 
     @PostMapping("/accounts/{id}/suspend")
-    AccountRecord suspend(@PathVariable UUID id, @AuthenticationPrincipal AuthenticatedUser user) {
+    AccountRecord suspend(@PathVariable("id") UUID id, @AuthenticationPrincipal AuthenticatedUser user) {
         return adminUseCases.suspend(id, user == null ? null : user.userId());
     }
 
     @GetMapping("/audit")
     PageResponse<AuditLogRecord> audit(
         @AuthenticationPrincipal AuthenticatedUser user,
-        @RequestParam(defaultValue = "0") int page,
-        @RequestParam(defaultValue = "15") int size
+        @RequestParam(value = "page", defaultValue = "0") int page,
+        @RequestParam(value = "size", defaultValue = "15") int size
     ) {
         return adminUseCases.auditLogs(user == null ? null : user.userId(), page, size);
     }

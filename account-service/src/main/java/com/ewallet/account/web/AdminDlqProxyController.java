@@ -36,7 +36,7 @@ class AdminDlqProxyController {
     }
 
     @GetMapping
-    JsonNode inspect(@RequestParam(defaultValue = "50") int limit) {
+    JsonNode inspect(@RequestParam(value = "limit", defaultValue = "50") int limit) {
         URI uri = UriComponentsBuilder
             .fromHttpUrl(notificationServiceUrl)
             .path("/api/admin/dlq")
