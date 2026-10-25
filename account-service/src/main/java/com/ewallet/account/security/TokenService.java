@@ -23,6 +23,9 @@ public class TokenService {
     public TokenService(ObjectMapper objectMapper, @Value("${banking.jwt-secret}") String secret) {
         this.objectMapper = objectMapper;
         this.secret = secret.getBytes(StandardCharsets.UTF_8);
+        if (this.secret.length < 32) {
+            throw new IllegalArgumentException("JWT HS256 signing secret must contain at least 32 bytes");
+        }
     }
 
     public String accessToken(UUID userId, UUID accountId, Set<String> roles) {
@@ -50,7 +53,7 @@ public class TokenService {
                 throw new DomainException("AUTH_INVALID", "Invalid token type");
             }
             long exp = Long.parseLong(payload.get("exp"));
-            if (Instant.now().getEpochSecond() > exp) {
+            if (Instant.now().getEpochSecond() >= exp) {
                 throw new DomainException("AUTH_EXPIRED", "Access token expired");
             }
             String accountValue = payload.get("accountId");
@@ -64,12 +67,13 @@ public class TokenService {
         }
     }
 
-    @SuppressWarnings("unchecked")
     private String sign(Map<String, Object> payload) {
         try {
+            String header = base64Url(objectMapper.writeValueAsBytes(Map.of("alg", "HS256", "typ", "JWT")));
             String body = base64Url(objectMapper.writeValueAsBytes(payload));
-            String signature = base64Url(hmac(body));
-            return body + "." + signature;
+            String signingInput = header + "." + body;
+            String signature = base64Url(hmac(signingInput));
+            return signingInput + "." + signature;
         } catch (Exception ex) {
             throw new IllegalStateException("Unable to create token", ex);
         }
@@ -78,15 +82,19 @@ public class TokenService {
     @SuppressWarnings("unchecked")
     private Map<String, String> parse(String token) {
         try {
-            String[] parts = token.split("\\.");
-            if (parts.length != 2) {
+            String[] parts = token.split("\\.", -1);
+            if (parts.length != 3) {
                 throw new DomainException("AUTH_INVALID", "Invalid bearer token");
             }
-            String expected = base64Url(hmac(parts[0]));
-            if (!MessageDigest.isEqual(expected.getBytes(StandardCharsets.UTF_8), parts[1].getBytes(StandardCharsets.UTF_8))) {
+            Map<String, Object> header = objectMapper.readValue(Base64.getUrlDecoder().decode(parts[0]), Map.class);
+            if (!"HS256".equals(header.get("alg")) || !"JWT".equals(header.get("typ")) || header.containsKey("crit")) {
                 throw new DomainException("AUTH_INVALID", "Invalid bearer token");
             }
-            Map<String, Object> raw = objectMapper.readValue(Base64.getUrlDecoder().decode(parts[0]), Map.class);
+            byte[] expected = hmac(parts[0] + "." + parts[1]);
+            if (!MessageDigest.isEqual(expected, Base64.getUrlDecoder().decode(parts[2]))) {
+                throw new DomainException("AUTH_INVALID", "Invalid bearer token");
+            }
+            Map<String, Object> raw = objectMapper.readValue(Base64.getUrlDecoder().decode(parts[1]), Map.class);
             Map<String, String> payload = new LinkedHashMap<>();
             raw.forEach((key, value) -> payload.put(key, String.valueOf(value)));
             return payload;

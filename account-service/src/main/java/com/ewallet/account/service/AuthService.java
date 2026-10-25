@@ -13,6 +13,7 @@ import java.util.Optional;
 import java.util.UUID;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
@@ -69,8 +70,12 @@ public class AuthService {
         String hash = tokenService.hashRefreshToken(request.refreshToken());
         UserRecord user = store.findUserByRefreshTokenHash(hash)
             .orElseThrow(() -> new DomainException("AUTH_INVALID", "Invalid refresh token"));
-        AccountRecord account = store.userAccount(user.id(), "VND");
-        return issueTokens(user, account);
+        AccountRecord account = store.optionalUserAccount(user.id(), "VND").orElse(null);
+        String refresh = tokenService.refreshToken();
+        if (!store.rotateRefreshTokenHash(user.id(), hash, tokenService.hashRefreshToken(refresh))) {
+            throw new DomainException("AUTH_INVALID", "Refresh token already used or revoked");
+        }
+        return tokenResponse(user, account, refresh);
     }
 
     @Transactional
@@ -134,16 +139,13 @@ public class AuthService {
         }
         Instant now = Instant.now();
         store.consumePasswordResetOtp(otpRecord.id(), now);
-        store.saveUser(new UserRecord(
-            user.id(), user.email(), user.phone(), passwordEncoder.encode(request.newPassword()), user.pinHash(),
-            null, user.roles(), user.status(), user.createdAt(), 0, null
-        ));
+        store.resetUserPassword(user.id(), passwordEncoder.encode(request.newPassword()));
         store.audit("USER", user.id(), "PasswordReset", "USER", user.id(), Map.of("identifier", safeIdentifier(request.identifier())), null);
     }
 
-    @Transactional(noRollbackFor = DomainException.class)
+    @Transactional(propagation = Propagation.REQUIRES_NEW, noRollbackFor = DomainException.class)
     public void verifyPin(UUID userId, String pin) {
-        UserRecord user = store.findUser(userId)
+        UserRecord user = store.findUserForUpdate(userId)
             .orElseThrow(() -> new DomainException("AUTH_INVALID", "Unknown user"));
 
         if (user.pinLockedUntil() != null && user.pinLockedUntil().isAfter(Instant.now())) {
@@ -156,7 +158,7 @@ public class AuthService {
             if (newAttempts >= 5) {
                 lockUntil = Instant.now().plus(Duration.ofMinutes(15));
             }
-            store.saveUser(new UserRecord(
+            store.saveUserPinState(new UserRecord(
                 user.id(), user.email(), user.phone(), user.passwordHash(), user.pinHash(),
                 user.refreshTokenHash(), user.roles(), user.status(), user.createdAt(),
                 newAttempts, lockUntil
@@ -165,7 +167,7 @@ public class AuthService {
         }
 
         if (user.failedPinAttempts() > 0) {
-            store.saveUser(new UserRecord(
+            store.saveUserPinState(new UserRecord(
                 user.id(), user.email(), user.phone(), user.passwordHash(), user.pinHash(),
                 user.refreshTokenHash(), user.roles(), user.status(), user.createdAt(),
                 0, null
@@ -175,7 +177,7 @@ public class AuthService {
 
     @Transactional(noRollbackFor = DomainException.class)
     public void changePin(UUID userId, String currentPin, String newPin) {
-        UserRecord user = store.findUser(userId)
+        UserRecord user = store.findUserForUpdate(userId)
             .orElseThrow(() -> new DomainException("AUTH_INVALID", "Unknown user"));
 
         if (user.pinLockedUntil() != null && user.pinLockedUntil().isAfter(Instant.now())) {
@@ -188,7 +190,7 @@ public class AuthService {
             if (newAttempts >= 5) {
                 lockUntil = Instant.now().plus(Duration.ofMinutes(15));
             }
-            store.saveUser(new UserRecord(
+            store.saveUserPinState(new UserRecord(
                 user.id(), user.email(), user.phone(), user.passwordHash(), user.pinHash(),
                 user.refreshTokenHash(), user.roles(), user.status(), user.createdAt(),
                 newAttempts, lockUntil
@@ -200,7 +202,7 @@ public class AuthService {
             throw new DomainException("INVALID_PIN_FORMAT", "New transaction PIN must be exactly 6 digits");
         }
 
-        store.saveUser(new UserRecord(
+        store.saveUserPinState(new UserRecord(
             user.id(), user.email(), user.phone(), user.passwordHash(), passwordEncoder.encode(newPin),
             user.refreshTokenHash(), user.roles(), user.status(), user.createdAt(),
             0, null
@@ -245,7 +247,11 @@ public class AuthService {
 
     private AuthResponse issueTokens(UserRecord user, AccountRecord account) {
         String refresh = tokenService.refreshToken();
-        store.saveUser(user.withRefreshTokenHash(tokenService.hashRefreshToken(refresh)));
+        store.setRefreshTokenHash(user.id(), tokenService.hashRefreshToken(refresh));
+        return tokenResponse(user, account, refresh);
+    }
+
+    private AuthResponse tokenResponse(UserRecord user, AccountRecord account, String refresh) {
         return new AuthResponse(
             tokenService.accessToken(user.id(), account == null ? null : account.id(), user.roles()),
             refresh,

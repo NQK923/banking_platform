@@ -234,6 +234,10 @@ public class WalletStore {
         return queryOne("SELECT * FROM users WHERE id = ?", userMapper(), id);
     }
 
+    public Optional<UserRecord> findUserForUpdate(UUID id) {
+        return queryOne("SELECT * FROM users WHERE id = ? FOR UPDATE", userMapper(), id);
+    }
+
     public Optional<UserRecord> findUserByRefreshTokenHash(String refreshTokenHash) {
         if (refreshTokenHash == null || refreshTokenHash.isBlank()) {
             return Optional.empty();
@@ -241,25 +245,36 @@ public class WalletStore {
         return queryOne("SELECT * FROM users WHERE refresh_token_hash = ?", userMapper(), refreshTokenHash);
     }
 
-    public synchronized void saveUser(UserRecord user) {
+    public void saveUserPinState(UserRecord user) {
         jdbc.update(
             """
                 UPDATE users
-                SET email = ?, phone = ?, password_hash = ?, pin_hash = ?, refresh_token_hash = ?,
-                    roles = ?, status = ?, failed_pin_attempts = ?, pin_locked_until = ?
+                SET pin_hash = ?, failed_pin_attempts = ?, pin_locked_until = ?
                 WHERE id = ?
                 """,
-            user.email(),
-            user.phone(),
-            user.passwordHash(),
             user.pinHash(),
-            user.refreshTokenHash(),
-            rolesToString(user.roles()),
-            user.status().name(),
             user.failedPinAttempts(),
             user.pinLockedUntil() != null ? Timestamp.from(user.pinLockedUntil()) : null,
             user.id()
         );
+    }
+
+    public void resetUserPassword(UUID userId, String passwordHash) {
+        jdbc.update(
+            "UPDATE users SET password_hash = ?, refresh_token_hash = NULL, failed_pin_attempts = 0, pin_locked_until = NULL WHERE id = ?",
+            passwordHash, userId
+        );
+    }
+
+    public void setRefreshTokenHash(UUID userId, String hash) {
+        jdbc.update("UPDATE users SET refresh_token_hash = ? WHERE id = ?", hash, userId);
+    }
+
+    public boolean rotateRefreshTokenHash(UUID userId, String previousHash, String nextHash) {
+        return jdbc.update(
+            "UPDATE users SET refresh_token_hash = ? WHERE id = ? AND refresh_token_hash = ?",
+            nextHash, userId, previousHash
+        ) == 1;
     }
 
     public Optional<IdempotentWalletOperation> findWalletOperation(
