@@ -10,6 +10,28 @@ spring:
       port: ${SPRING_DATA_REDIS_PORT:6379}
   cloud:
     gateway:
+      globalcors:
+        add-to-simple-url-handler-mapping: true
+        cors-configurations:
+          '[/**]':
+            allowedOriginPatterns:
+              - "http://localhost:*"
+              - "http://127.0.0.1:*"
+            allowedMethods:
+              - GET
+              - POST
+              - PUT
+              - DELETE
+              - OPTIONS
+            allowedHeaders:
+              - Authorization
+              - Content-Type
+              - Accept
+              - Idempotency-Key
+              - X-Trace-Id
+            exposedHeaders:
+              - X-Trace-Id
+            allowCredentials: false
       default-filters:
         - name: RequestRateLimiter
           args:

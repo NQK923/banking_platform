@@ -122,4 +122,6 @@ if ($auditText -notmatch "MoneyDebitReversed" -or $auditText -notmatch "AccountS
 $report = Invoke-Json POST "/api/reconciliation/run" @{} -Token $admin.accessToken
 if (-not $report.zeroDrift) { throw "Expected zero drift reconciliation" }
 
-Write-Host "Smoke passed: register/login, deposit, balance, transfer, sad paths, admin audit, reconciliation"
+Invoke-Json GET "/api/admin/dlq?page=0&size=10" -Token $admin.accessToken | Out-Null
+
+Write-Host "Smoke passed: register/login, deposit, balance, transfer, sad paths, admin audit, reconciliation, notification DLQ"
