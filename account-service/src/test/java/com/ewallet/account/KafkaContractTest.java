@@ -19,6 +19,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.kafka.ConfluentKafkaContainer;
 import org.testcontainers.utility.DockerImageName;
 
+@org.junit.jupiter.api.Tag("docker")
 @Testcontainers(disabledWithoutDocker = true)
 class KafkaContractTest {
     @Container

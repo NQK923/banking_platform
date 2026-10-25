@@ -25,7 +25,12 @@ subprojects {
     }
 
     tasks.withType<Test>().configureEach {
-        useJUnitPlatform()
+        useJUnitPlatform {
+            if (providers.gradleProperty("skipDockerTests").isPresent) {
+                excludeTags("docker")
+            }
+        }
+        inputs.property("skipDockerTests", providers.gradleProperty("skipDockerTests").isPresent)
         jvmArgs("-Xshare:off")
     }
 

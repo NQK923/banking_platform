@@ -33,6 +33,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 @SpringBootTest
 @AutoConfigureMockMvc
+@org.junit.jupiter.api.Tag("docker")
 @Testcontainers(disabledWithoutDocker = true)
 class SagaChaosRecoveryTest {
     @Container

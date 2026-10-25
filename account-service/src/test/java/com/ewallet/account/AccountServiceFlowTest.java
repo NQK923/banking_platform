@@ -35,6 +35,7 @@ import com.ewallet.account.service.FaultInjection;
 
 @SpringBootTest
 @AutoConfigureMockMvc
+@org.junit.jupiter.api.Tag("docker")
 @Testcontainers(disabledWithoutDocker = true)
 class AccountServiceFlowTest {
     @Container
