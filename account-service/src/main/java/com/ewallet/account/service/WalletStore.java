@@ -40,6 +40,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.beans.factory.annotation.Value;
@@ -653,6 +654,31 @@ public class WalletStore {
             senderId,
             key
         );
+    }
+
+    public List<WalletTransaction> recoverableTransferTransactions(int limit) {
+        return jdbc.query(
+            """
+                SELECT *
+                FROM transactions
+                WHERE status IN ('PENDING', 'COMPENSATING')
+                  AND COALESCE(review_status, 'NONE') NOT IN ('MANUAL_REVIEW_REQUIRED', 'MANUAL_REJECTED')
+                ORDER BY updated_at, created_at
+                LIMIT ?
+                """,
+            transactionMapper(),
+            limit
+        );
+    }
+
+    @Transactional
+    public <T> T withLockedTransaction(UUID transactionId, Function<WalletTransaction, T> action) {
+        WalletTransaction transaction = queryOne(
+            "SELECT * FROM transactions WHERE id = ? FOR UPDATE",
+            transactionMapper(),
+            transactionId
+        ).orElseThrow(() -> new DomainException("TRANSACTION_NOT_FOUND", "Transaction not found"));
+        return action.apply(transaction);
     }
 
     public Optional<RiskEvaluationRecord> findLatestRiskEvaluation(UUID senderId, String key) {

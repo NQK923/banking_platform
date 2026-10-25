@@ -15,8 +15,13 @@ import com.ewallet.common.TransactionStatus;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -27,19 +32,26 @@ public class TransferUseCases {
     private final TransferMetrics metrics;
     private final FaultInjection faultInjection;
     private final RiskScoringService riskScoringService;
+    private final boolean immediateDispatchEnabled;
+    private final int recoveryBatchSize;
+    private final Set<UUID> runningSagas = ConcurrentHashMap.newKeySet();
 
     public TransferUseCases(
         WalletStore store,
         AuthService authService,
         TransferMetrics metrics,
         FaultInjection faultInjection,
-        RiskScoringService riskScoringService
+        RiskScoringService riskScoringService,
+        @Value("${banking.transfer.immediate-dispatch-enabled:true}") boolean immediateDispatchEnabled,
+        @Value("${banking.transfer.recovery-batch-size:50}") int recoveryBatchSize
     ) {
         this.store = store;
         this.authService = authService;
         this.metrics = metrics;
         this.faultInjection = faultInjection;
         this.riskScoringService = riskScoringService;
+        this.immediateDispatchEnabled = immediateDispatchEnabled;
+        this.recoveryBatchSize = recoveryBatchSize;
     }
 
     public Object transfer(AuthenticatedUser user, TransferRequest request, String idempotencyHeader) {
@@ -53,7 +65,17 @@ public class TransferUseCases {
             throw new DomainException("IDEMPOTENCY_KEY_REQUIRED", "Idempotency key is required");
         }
         return store.findTransactionByIdempotency(senderId, key)
-            .<Object>map(this::resumeIfInFlight)
+            .<Object>map(existing -> {
+                AccountRecord receiver = store.lookupAccount(request.recipientEmail(), request.recipientPhone())
+                    .orElseThrow(() -> new DomainException("IDEMPOTENCY_PAYLOAD_MISMATCH", "Transfer recipient differs from original request"));
+                Money amount = Money.of(request.amount(), existing.currency());
+                if (!receiver.id().equals(existing.receiverId())
+                    || amount.amount().compareTo(existing.amount()) != 0
+                    || !Objects.equals(request.note(), existing.note())) {
+                    throw new DomainException("IDEMPOTENCY_PAYLOAD_MISMATCH", "Idempotency key was reused with a different transfer payload");
+                }
+                return resumeIfInFlight(existing);
+            })
             .orElseGet(() -> createTransfer(senderId, request, key));
     }
 
@@ -167,14 +189,20 @@ public class TransferUseCases {
             transaction.correlationId()
         );
         store.linkRiskEvaluationToTransaction(risk.riskEvaluationId(), txId, reviewStatus == null || "NONE".equals(reviewStatus) ? "EVALUATED" : riskDecisionStatus(reviewStatus));
-        if (runImmediately) {
-            CompletableFuture.runAsync(() -> runSaga(txId));
+        if (runImmediately && immediateDispatchEnabled) {
+            dispatchSaga(txId);
         }
         return transaction;
     }
 
     private void runSaga(UUID txId) {
-        WalletTransaction tx = store.findTransaction(txId).orElseThrow();
+        store.withLockedTransaction(txId, tx -> {
+            runLockedSaga(tx);
+            return null;
+        });
+    }
+
+    private void runLockedSaga(WalletTransaction tx) {
         if (tx.status() == TransactionStatus.COMPLETED || tx.status() == TransactionStatus.FAILED || tx.status() == TransactionStatus.CANCELLED) {
             return;
         }
@@ -303,10 +331,17 @@ public class TransferUseCases {
         if ("MANUAL_REVIEW_REQUIRED".equals(transaction.reviewStatus()) || "MANUAL_REJECTED".equals(transaction.reviewStatus())) {
             return transaction;
         }
-        if (transaction.status() == TransactionStatus.PENDING || transaction.status() == TransactionStatus.COMPENSATING) {
-            CompletableFuture.runAsync(() -> runSaga(transaction.id()));
+        if (immediateDispatchEnabled && (transaction.status() == TransactionStatus.PENDING || transaction.status() == TransactionStatus.COMPENSATING)) {
+            dispatchSaga(transaction.id());
         }
         return transaction;
+    }
+
+    @Scheduled(fixedDelayString = "${banking.transfer.recovery-fixed-delay-ms:5000}")
+    public void recoverPendingTransfers() {
+        for (WalletTransaction transaction : store.recoverableTransferTransactions(recoveryBatchSize)) {
+            dispatchSaga(transaction.id());
+        }
     }
 
     public WalletTransaction get(UUID id) {
@@ -328,17 +363,18 @@ public class TransferUseCases {
     }
 
     public WalletTransaction cancel(UUID id, AuthenticatedUser user) {
-        WalletTransaction tx = get(id);
-        if (tx.debitApplied()) {
-            throw new DomainException("CANCEL_NOT_ALLOWED", "Cannot cancel after debit");
-        }
-        if (user == null || (!tx.senderId().equals(user.accountId()) && !user.roles().contains("ROLE_ADMIN"))) {
-            throw new DomainException("FORBIDDEN", "Cannot cancel another account's transfer");
-        }
-        WalletTransaction cancelled = tx.withStatus(TransactionStatus.CANCELLED);
-        store.saveTransaction(cancelled);
-        store.audit("TRANSACTION", id, "TransferCancelled", "USER", user.userId(), Map.of("status", "CANCELLED"), tx.correlationId());
-        return cancelled;
+        return store.withLockedTransaction(id, tx -> {
+            if (user == null || (!tx.senderId().equals(user.accountId()) && !user.roles().contains("ROLE_ADMIN"))) {
+                throw new DomainException("FORBIDDEN", "Cannot cancel another account's transfer");
+            }
+            if (tx.status() != TransactionStatus.PENDING || tx.debitApplied()) {
+                throw new DomainException("CANCEL_NOT_ALLOWED", "Only pending transfers can be cancelled before debit");
+            }
+            WalletTransaction cancelled = tx.withStatus(TransactionStatus.CANCELLED);
+            store.saveTransaction(cancelled);
+            store.audit("TRANSACTION", id, "TransferCancelled", "USER", user.userId(), Map.of("status", "CANCELLED"), tx.correlationId());
+            return cancelled;
+        });
     }
 
     public WalletTransaction approveRiskReview(UUID riskEvaluationId, String reason, AuthenticatedUser user) {
@@ -357,7 +393,9 @@ public class TransferUseCases {
         store.updateRiskDecisionStatus(riskEvaluationId, "MANUAL_APPROVED");
         store.saveRiskReviewAction(riskEvaluationId, txId, "APPROVE", reason, user.userId(), "ROLE_ADMIN", tx.correlationId());
         store.audit("RISK_EVALUATION", riskEvaluationId, "RiskManualApproved", "ADMIN", user.userId(), Map.of("reason", safe(reason)), tx.correlationId());
-        CompletableFuture.runAsync(() -> runSaga(txId));
+        if (immediateDispatchEnabled) {
+            dispatchSaga(txId);
+        }
         return approved;
     }
 
@@ -434,6 +472,19 @@ public class TransferUseCases {
 
     private String safe(String value) {
         return value == null ? "" : value;
+    }
+
+    private void dispatchSaga(UUID txId) {
+        if (!runningSagas.add(txId)) {
+            return;
+        }
+        CompletableFuture.runAsync(() -> {
+            try {
+                runSaga(txId);
+            } finally {
+                runningSagas.remove(txId);
+            }
+        });
     }
 
     public record TransferRequest(
