@@ -143,6 +143,30 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AccountDetails"
+  /api/accounts/pin/change:
+    post:
+      operationId: changePin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PinChangeRequest"
+      responses:
+        "200":
+          description: Transaction PIN changed for the authenticated user
+        "400":
+          description: Invalid new PIN format
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Missing session, locked PIN, or invalid current PIN
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /api/accounts/{id}:
     get:
       operationId: getAccountDetails
@@ -650,6 +674,18 @@ components:
       required: [pin]
       properties:
         pin:
+          type: string
+          pattern: "^\\d{6}$"
+          writeOnly: true
+    PinChangeRequest:
+      type: object
+      required: [currentPin, newPin]
+      properties:
+        currentPin:
+          type: string
+          pattern: "^\\d{6}$"
+          writeOnly: true
+        newPin:
           type: string
           pattern: "^\\d{6}$"
           writeOnly: true

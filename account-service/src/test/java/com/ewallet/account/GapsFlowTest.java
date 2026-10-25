@@ -32,6 +32,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 @SpringBootTest
 @AutoConfigureMockMvc
+@org.junit.jupiter.api.Tag("docker")
 @Testcontainers(disabledWithoutDocker = true)
 class GapsFlowTest {
     @Container
@@ -218,6 +219,33 @@ class GapsFlowTest {
 
         assertThat(response.get("accessToken").asText()).isNotBlank();
         assertThat(response.get("userId").asText()).isEqualTo(user.userId());
+    }
+
+    @Test
+    void refreshRotatesTokenAndRevokesThePreviouslyUsedToken() throws Exception {
+        Auth user = register("refresh-rotation@example.test", "+84000000935", "123456");
+
+        JsonNode rotated = postJson(
+            "/api/auth/refresh",
+            null,
+            "{\"refreshToken\":\"" + user.refreshToken() + "\"}",
+            null
+        ).andExpect(status().isOk()).andReturnJson();
+        String nextRefreshToken = rotated.get("refreshToken").asText();
+
+        assertThat(nextRefreshToken).isNotBlank().isNotEqualTo(user.refreshToken());
+        postJson(
+            "/api/auth/refresh",
+            null,
+            "{\"refreshToken\":\"" + user.refreshToken() + "\"}",
+            null
+        ).andExpect(status().isUnauthorized());
+        postJson(
+            "/api/auth/refresh",
+            null,
+            "{\"refreshToken\":\"" + nextRefreshToken + "\"}",
+            null
+        ).andExpect(status().isOk());
     }
 
     @Test
